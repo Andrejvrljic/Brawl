@@ -129,7 +129,7 @@ export class Database {
   history(acc, n = 10) { return this.q.history.all(acc.id, n); }
   leaderboard(n = 50) { return this.q.top.all(n).map((r) => ({ id: r.id, name: r.name, trophies: r.trophies, registered: !!r.registered })); }
   rankOf(trophies) { return this.q.rank.get(trophies).r; }
-  get accountCount() { return this.q.count.get().n; }
+  accountCount() { return this.q.count.get().n; }
   close() { this.db.close(); }
 }
 

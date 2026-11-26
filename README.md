@@ -2,6 +2,15 @@
 
 Ein 3D-Arena-Brawler aus der Vogelperspektive – mit Online-Multiplayer, 8 Brawlern mit eigenen Angriffen und Belohnungen zum Freischalten. Läuft im Browser auf PC, Handy und Tablet.
 
+## Online spielen (Cloudflare, wie ECLIPSE)
+
+**https://kistenkrawall.dinnerboneagg.workers.dev** – Multiplayer, Konten, Datenbank und Rangliste, dauerhaft online.
+
+Wird bei jedem Push auf `main` von GitHub Actions (`.github/workflows/cloudflare.yml`) veröffentlicht:
+Worker (Spielseite + API), Durable Object (Multiplayer-Server für alle Räume) und D1-Datenbank (`kistenkrawall-db`).
+Einmalig nötig: Repository-Secret `CLOUDFLARE_API_TOKEN` (derselbe Token wie bei ECLIPSE, Rechte *Workers Scripts: Edit* und *D1: Edit*).
+Nach jedem Deploy prüft ein Live-Test Konten, Datenbank und einen Multiplayer-Raum gegen den echten Server.
+
 ## Spielen ohne Installation
 
 - **Gegen Bots (fester Link):** https://andrejvrljic.github.io/Brawl/ – läuft über GitHub Pages, ohne Multiplayer und Datenbank.
