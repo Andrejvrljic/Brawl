@@ -150,7 +150,7 @@ async function renderRanking() {
   } catch { el.innerHTML = '<p class="hint">Rangliste konnte nicht geladen werden.</p>'; }
 }
 $('netOnline').onclick = () => {
-  if (!serverUrl()) { toast('Online braucht den Server: im Projektordner <b>npm start</b> ausführen und die angezeigte Adresse öffnen.', 4000); return; }
+  if (!serverUrl() || account.mode !== 'server') { toast('Online-Spiele brauchen den Server: im Projektordner <b>npm start</b> ausführen und die angezeigte Adresse öffnen. Hier kannst du gegen Bots spielen.', 4000); return; }
   state.online = true; refreshHome();
 };
 $('netOffline').onclick = () => { state.online = false; refreshHome(); };
@@ -588,6 +588,8 @@ function frame(now) {
 // Start: Spielstand aus der Datenbank laden
 requestAnimationFrame(frame);
 await initSave();
+// Ohne erreichbaren Server (z. B. reine Webseite): nur gegen Bots
+if (account.mode !== 'server') state.online = false;
 setSound(save.sound);
 show('home');
 if (save.stats.games === 0 && !localStorage.getItem('kk_intro')) {
