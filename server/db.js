@@ -51,6 +51,10 @@ export class Database {
         PRIMARY KEY (a, b)
       );
       CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b);
+      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS admin_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, admin TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS bans (
         account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
         created    INTEGER NOT NULL
@@ -121,6 +125,30 @@ export class Database {
     const row = typeof login === 'string' ? this.q.getByLogin.get(login.trim()) : null;
     if (!row) return null;
     return { ...this.account(row.id), created: row.created, banned: this.isBanned(row.id) };
+  }
+  getSetting(key) { const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key); return r ? r.value : null; }
+  setSetting(key, value) {
+    if (value === null) this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    else this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
+  }
+  logAdmin(admin, action, detail) {
+    this.db.prepare('INSERT INTO admin_log (admin, action, detail, at) VALUES (?, ?, ?, ?)').run(String(admin), String(action), String(detail).slice(0, 300), Date.now());
+  }
+  adminLog(n = 40) { return this.db.prepare('SELECT admin, action, detail, at FROM admin_log ORDER BY id DESC LIMIT ?').all(n); }
+  searchAccounts(q, n = 12) {
+    return this.db.prepare("SELECT login, name, trophies FROM accounts WHERE login IS NOT NULL AND (login LIKE ? OR name LIKE ?) ORDER BY trophies DESC LIMIT ?").all(q + '%', '%' + q + '%', n);
+  }
+  allAccountIds() { return this.db.prepare('SELECT id FROM accounts WHERE login IS NOT NULL').all().map((r) => r.id); }
+  setPassword(id, password) {
+    if (typeof password !== 'string' || password.length < 6 || password.length > 100) return { error: 'Passwort: mindestens 6 Zeichen.' };
+    this.db.prepare('UPDATE accounts SET pass = ?, updated = ? WHERE id = ?').run(hashPassword(password), Date.now(), id);
+    this.db.prepare('DELETE FROM sessions WHERE account_id = ?').run(id);
+    return { ok: true };
+  }
+  deleteAccount(id) {
+    for (const sql of ['DELETE FROM sessions WHERE account_id = ?', 'DELETE FROM matches WHERE account_id = ?', 'DELETE FROM bans WHERE account_id = ?']) this.db.prepare(sql).run(id);
+    this.db.prepare('DELETE FROM friends WHERE a = ? OR b = ?').run(id, id);
+    this.db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
   }
   isBanned(id) { return !!this.q.banGet.get(id); }
   setBan(id, on) { if (on) this.q.banIns.run(id, Date.now()); else this.q.banDel.run(id); }

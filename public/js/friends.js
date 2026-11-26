@@ -73,6 +73,8 @@ export class Friends {
       case 'announce': this.h.onAnnounce(m); break;
       case 'profileUpdate': this.h.onProfileUpdate(); break;
       case 'kicked': this.h.onKicked(m); break;
+      case 'kickedSoft': this.h.onKickedSoft(m); break;
+      case 'news': this.h.onNews(m.news); break;
     }
   }
 

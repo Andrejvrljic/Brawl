@@ -155,7 +155,7 @@ export class NetSession {
         if (!forced) this.lastWarp = meS.w;
         if (forced) this.lastWarp = -1;
       } else {
-        const sp = this.def.speed * (meS.st & 1 ? 0.55 : 1);
+        const sp = this.def.speed * (meS.st & 1 ? 0.55 : 1) * (meS.sm || 1);
         if (this.mx || this.my) this.map.moveCircle(this.pred, this.mx * sp * dt, this.my * sp * dt, PR);
         // sanft zum Server ziehen, falls weit weg
         const ex = meS.x - this.pred.x, ey = meS.y - this.pred.y;

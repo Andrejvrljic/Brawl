@@ -7,7 +7,7 @@ import { LocalSession, NetSession, serverUrl } from './session.js';
 import { sfx, setSound, unlockAudio } from './audio.js';
 import { BRAWLERS, BRAWLER_ORDER, MAX_LEVEL, SKIN_NAMES, SKIN_COST, levelMult } from '../shared/brawlers.js';
 import { MODES } from '../shared/game.js';
-import { save, account, initSave, act, reportMatch, signup, login, logout, leaderboard, token, isLoggedIn, refresh, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
+import { save, account, initSave, act, reportMatch, signup, login, logout, leaderboard, token, isLoggedIn, refresh, news, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
 import { Friends } from './friends.js';
 
 const $ = (id) => document.getElementById(id);
@@ -84,6 +84,7 @@ function refreshHome() {
   $('accIco').textContent = isLoggedIn() ? '👤' : '💾';
   $('badgeFriends').textContent = friends.badge || '';
   $('navAdmin').classList.toggle('hidden', !(isLoggedIn() && account.admin));
+  renderNews();
   $('resTroph').textContent = totalTrophies();
   $('resCoins').textContent = save.coins;
   $('resGems').textContent = save.gems;
@@ -103,6 +104,14 @@ function refreshHome() {
 
 $('btnSound').onclick = async () => { await act({ type: 'sound', on: !save.sound }); setSound(save.sound); refreshHome(); };
 $('btnName').onclick = () => accountModal();
+
+function renderNews() {
+  const parts = [];
+  if (news.maintenance) parts.push(`<div class="mt">🔧 ${escapeHtml(news.maintenance.text)}</div>`);
+  if (news.event && news.event.until > Date.now()) parts.push(`<div class="ev">🎉 Doppelte Belohnungen bis ${new Date(news.event.until).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr!</div>`);
+  if (news.motd) parts.push(`<div>📰 ${escapeHtml(news.motd)}</div>`);
+  $('newsBar').innerHTML = isLoggedIn() ? parts.join('') : '';
+}
 
 // ---------- Konto (Datenbank) ----------
 function accountModal(msg = '') {
@@ -213,6 +222,11 @@ const friends = new Friends({
       toast('🎁 Ein Admin hat dein Konto aktualisiert!');
     }
   },
+  onNews: (n) => { Object.assign(news, n); if (state.screen === 'home') renderNews(); },
+  onKickedSoft: (m) => {
+    if (state.session) { const s = state.session; state.session = null; s.leave(); input.enabled = false; renderer.endGame(); renderer.showMenu(save.selected, save.skinSel[save.selected]); show('home'); }
+    toast(escapeHtml(m.msg || 'Du wurdest aus dem Match geworfen.'), 4000);
+  },
   onKicked: async (m) => {
     if (state.session) { const s = state.session; state.session = null; s.leave(); input.enabled = false; renderer.endGame(); }
     await logout();
@@ -293,12 +307,15 @@ function inviteFriend(id) {
 // ---------- Admin ----------
 let adminCode = '';
 try { adminCode = sessionStorage.getItem('kk_admin') || ''; } catch { /* egal */ }
+let adminTab = 'overview';
 const adminMsg = (m) => { const el = $('adminMsg'); el.textContent = m.error || (typeof m.ok === 'string' ? m.ok : ''); el.style.color = m.error ? '#ff8a8e' : ''; };
+const fmtTime = (t) => new Date(t).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+const fmtDate = (t) => new Date(t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-async function adminCall(m) {
+async function adminCall(m, quiet = false) {
   const r = await friends.request({ ...m, code: adminCode });
   if (r.badCode) { adminCode = ''; try { sessionStorage.removeItem('kk_admin'); } catch { /* egal */ } lockAdmin(); }
-  adminMsg(r);
+  if (!quiet || r.error) adminMsg(r);
   return r;
 }
 function lockAdmin() { $('adminLock').classList.remove('hidden'); $('adminPanel').classList.add('hidden'); }
@@ -307,12 +324,146 @@ async function openAdmin() {
   $('adminMsg').textContent = '';
   if (!(isLoggedIn() && account.admin)) { show('home'); return; }
   if (!adminCode) { lockAdmin(); $('adminCodeIn').focus(); return; }
-  const r = await adminCall({ action: 'check' });
+  const r = await adminCall({ action: 'overview' }, true);
   if (r.error) return;
   $('adminLock').classList.add('hidden');
   $('adminPanel').classList.remove('hidden');
+  setAdminTab(adminTab, r);
+}
+
+function setAdminTab(tab, data) {
+  adminTab = tab;
+  document.querySelectorAll('[data-atab]').forEach((b) => b.classList.toggle('on', b.dataset.atab === tab));
+  document.querySelectorAll('.apage').forEach((pg) => pg.classList.toggle('hidden', pg.id !== 'apage-' + tab));
+  if (tab === 'overview') (data ? Promise.resolve(data) : adminCall({ action: 'overview' }, true)).then(renderOverview);
+  if (tab === 'server') adminCall({ action: 'overview' }, true).then((r) => r.server && renderServer(r.server));
+  if (tab === 'log') adminCall({ action: 'log' }, true).then(renderLog);
+}
+document.querySelectorAll('[data-atab]').forEach((b) => b.onclick = () => { sfx('click'); $('adminMsg').textContent = ''; setAdminTab(b.dataset.atab); });
+
+const STATUS_DE = { online: 'im Menü', lobby: 'in der Lobby', ingame: 'spielt', offline: 'offline' };
+function renderOverview(r) {
+  if (!r || !r.stats) return;
   const st = r.stats;
   $('adminStats').innerHTML = `<div>Konten<b>${st.accounts}</b></div><div>Online<b>${st.online}</b></div><div>Spielen gerade<b>${st.playing}</b></div><div>Räume<b>${st.rooms}</b></div>`;
+  $('adminRooms').innerHTML = r.rooms.length ? r.rooms.map((room) => {
+    const sc = room.score ? (room.mode === 'ffa' ? '' : ` · ${room.score[0]} : ${room.score[1]}`) : '';
+    const tl = room.timeLeft !== null ? ` · ${Math.floor(room.timeLeft / 60)}:${String(room.timeLeft % 60).padStart(2, '0')}` : '';
+    return `<div class="aroom"><div class="top"><b>${MODES[room.mode].name}${room.code ? ' · Raum ' + room.code : ''}</b>
+      <small>${room.state === 'play' ? '▶ läuft' + sc + tl : room.state === 'lobby' ? '⏳ Lobby' : '🏁 Ende'}</small>
+      ${room.state !== 'end' ? `${room.state === 'play' && room.mode !== 'ffa' ? `<button class="btn" data-end="${room.id}" data-win="0">Blau gewinnt</button><button class="btn red" data-end="${room.id}" data-win="1">Rot gewinnt</button>` : ''}<button class="btn grey" data-end="${room.id}">Beenden</button>` : ''}</div>
+      <div class="pl">${room.players.map((p) => `<span class="${room.mode === 'ffa' || p.team === null ? '' : 't' + p.team}">${p.bot ? '🤖' : '👤'} ${escapeHtml(p.name)} · ${BRAWLERS[p.brawler]?.name || ''}${p.kills ? ' · ' + p.kills + ' K.O.' : ''}</span>`).join('')}</div></div>`;
+  }).join('') : '<p class="hint">Gerade läuft kein Match.</p>';
+  $('adminOnline').innerHTML = r.online.length ? r.online.map((o) => `<div class="frow"><span class="dot ${o.status}"></span><div class="fname">${escapeHtml(o.name)}<small>${o.login ? '@' + escapeHtml(o.login) + ' · ' : ''}${STATUS_DE[o.status] || o.status}</small></div>
+    ${o.login ? `<button class="btn" data-open="${escapeHtml(o.login)}">Verwalten</button>` : ''}</div>`).join('') : '<p class="hint">Niemand online.</p>';
+  $('adminRooms').querySelectorAll('[data-end]').forEach((b) => b.onclick = async () => {
+    const m = { action: 'endRoom', roomId: +b.dataset.end };
+    if (b.dataset.win !== undefined) m.winner = +b.dataset.win;
+    await adminCall(m); setAdminTab('overview');
+  });
+  $('adminOnline').querySelectorAll('[data-open]').forEach((b) => b.onclick = () => openPlayer(b.dataset.open));
+}
+$('adminRefresh').onclick = () => setAdminTab('overview');
+
+async function openPlayer(login) {
+  setAdminTab('players');
+  $('adminResults').innerHTML = '';
+  const r = await adminCall({ action: 'find', login }, true);
+  renderAdminPlayer(r.player || null);
+}
+
+$('findForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = $('findIn').value.trim();
+  if (!q) return;
+  const r = await adminCall({ action: 'search', q }, true);
+  const list = r.list || [];
+  $('adminPlayer').innerHTML = '';
+  if (list.length === 1) { openPlayer(list[0].login); return; }
+  $('adminResults').innerHTML = list.length ? list.map((x) => `<div class="frow aresult" data-open="${escapeHtml(x.login)}"><div class="fname">${escapeHtml(x.name)}<small>@${escapeHtml(x.login)} · 🏆 ${x.trophies}</small></div><button class="btn">Öffnen</button></div>`).join('') : '<p class="hint">Kein Spieler gefunden.</p>';
+  $('adminResults').querySelectorAll('[data-open]').forEach((b) => b.onclick = () => openPlayer(b.dataset.open));
+});
+
+function renderAdminPlayer(p) {
+  const el = $('adminPlayer');
+  if (!p) { el.innerHTML = ''; return; }
+  const total = Object.values(p.trophies).reduce((a, b) => a + b, 0);
+  const opts = (sel) => BRAWLER_ORDER.map((k) => `<option value="${k}">${BRAWLERS[k].name} (${sel(k)})</option>`).join('');
+  el.innerHTML = `<div class="pcard">
+    <h3>${escapeHtml(p.name)} ${p.admin ? '🛡️' : ''}</h3>
+    <div class="meta">@${escapeHtml(p.login)} · ${STATUS_DE[p.status] || 'offline'}${p.created ? ' · seit ' + fmtDate(p.created) : ''}<br>
+      🏆 ${total} · ● ${p.coins} · ◆ ${p.gems} · 🎁 ${p.boxes} · ${p.unlocked.length}/8 Brawler · ${p.games} Spiele, ${p.wins} Siege, ${p.kos} K.O.s
+      ${p.banned ? '<br><span class="banned">⛔ Gesperrt</span>' : ''}</div>
+    <div class="abtns">
+      <button class="btn" data-give='{"coins":100}'>+100 ●</button><button class="btn" data-give='{"coins":1000}'>+1000 ●</button>
+      <button class="btn" data-give='{"gems":50}'>+50 ◆</button><button class="btn" data-give='{"gems":500}'>+500 ◆</button>
+      <button class="btn" data-give='{"boxes":1}'>+1 🎁</button><button class="btn" data-give='{"boxes":10}'>+10 🎁</button>
+      <button class="btn grey" data-give='{"coins":-100}'>−100 ●</button><button class="btn grey" data-give='{"gems":-50}'>−50 ◆</button>
+    </div>
+    <div class="abtns">
+      <button class="btn gold" data-act="unlockAll">Alle Brawler</button>
+      <button class="btn gold" data-act="skinsAll">Alle Skins</button>
+      <button class="btn gold" data-act="maxAll">Alle Max-Stufe</button>
+    </div>
+    <div class="prow">🏆 <select id="trBrawler">${opts((k) => p.trophies[k])}</select><input id="trValue" type="number" min="0" max="100000" placeholder="Trophäen"><button class="btn" id="trSet">Setzen</button></div>
+    <div class="prow">⭐ <select id="lvBrawler">${opts((k) => 'Stufe ' + p.levels[k])}</select><input id="lvValue" type="number" min="1" max="7" placeholder="Stufe 1–7"><button class="btn" id="lvSet">Setzen</button></div>
+    <div class="prow">✏️ <input id="rnValue" maxlength="14" placeholder="Neuer Name im Spiel"><button class="btn" id="rnSet">Umbenennen</button></div>
+    <div class="prow">🔑 <input id="pwValue" type="text" placeholder="Neues Passwort (mind. 6 Zeichen)" autocomplete="off"><button class="btn" id="pwSet">Setzen</button></div>
+    <div class="abtns danger">
+      <button class="btn grey" id="pKick">🚪 Aus Match werfen</button>
+      ${p.admin ? '' : (p.banned ? '<button class="btn" data-ban="0">Sperre aufheben</button>' : '<button class="btn red" data-ban="1">⛔ Sperren</button>')}
+      <button class="btn red" id="pReset">↺ Fortschritt zurücksetzen</button>
+      ${p.admin ? '' : '<button class="btn red" id="pDelete">🗑️ Konto löschen</button>'}
+    </div>
+  </div>`;
+  const run = async (m) => { const r = await adminCall({ ...m, login: p.login }); if (r.player) renderAdminPlayer({ ...p, ...r.player }); if (r.deleted) el.innerHTML = ''; return r; };
+  const confirmRun = (title, text, m, label = 'Ja') => {
+    modal(`<h2>${title}</h2><p class="hint" style="max-width:none">${text}</p><div class="row"><button class="btn grey" id="cfNo">Abbrechen</button><button class="btn red" id="cfYes">${label}</button></div>`);
+    $('cfNo').onclick = closeModal;
+    $('cfYes').onclick = () => { closeModal(); run(m); };
+  };
+  el.querySelectorAll('[data-give]').forEach((b) => b.onclick = () => run({ action: 'give', ...JSON.parse(b.dataset.give) }));
+  el.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => run({ action: b.dataset.act }));
+  $('trSet').onclick = () => run({ action: 'trophies', brawler: $('trBrawler').value, value: +$('trValue').value || 0 });
+  $('lvSet').onclick = () => run({ action: 'level', brawler: $('lvBrawler').value, value: +$('lvValue').value || 1 });
+  $('rnSet').onclick = () => run({ action: 'rename', name: $('rnValue').value });
+  $('pwSet').onclick = () => run({ action: 'password', password: $('pwValue').value });
+  $('pKick').onclick = () => run({ action: 'kick' });
+  el.querySelectorAll('[data-ban]').forEach((b) => b.onclick = () => {
+    if (b.dataset.ban === '0') run({ action: 'ban', on: false });
+    else confirmRun(`${escapeHtml(p.name)} sperren?`, 'Der Spieler wird sofort rausgeworfen und kann sich nicht mehr anmelden, bis du die Sperre aufhebst.', { action: 'ban', on: true }, 'Sperren');
+  });
+  $('pReset').onclick = () => confirmRun('Fortschritt zurücksetzen?', `Alle Trophäen, Münzen, Juwelen, Brawler und Skins von <b>${escapeHtml(p.name)}</b> werden gelöscht. Das kann man nicht rückgängig machen.`, { action: 'resetProgress' }, 'Zurücksetzen');
+  if ($('pDelete')) $('pDelete').onclick = () => confirmRun('Konto löschen?', `Das Konto <b>@${escapeHtml(p.login)}</b> wird komplett gelöscht. Das kann man nicht rückgängig machen.`, { action: 'delete' }, 'Löschen');
+}
+
+function renderServer(info) {
+  $('adminEventInfo').textContent = info.event ? `Läuft gerade – bis ${fmtTime(info.event.until)} Uhr (Trophäen, Münzen und Kisten-Fortschritt ×2)` : 'Kein Event aktiv.';
+  $('adminMaintInfo').textContent = info.maintenance ? `AN: „${info.maintenance.text}“ – nur Admins können spielen.` : 'Aus.';
+  $('motdIn').value = info.motd || '';
+  Object.assign(news, info);
+}
+document.querySelectorAll('[data-event]').forEach((b) => b.onclick = async () => { const r = await adminCall({ action: 'event', minutes: +b.dataset.event }); if (r.server) renderServer(r.server); });
+document.querySelectorAll('[data-giveall]').forEach((b) => b.onclick = () => {
+  const g = JSON.parse(b.dataset.giveall);
+  modal(`<h2>Geschenk an alle?</h2><p class="hint" style="max-width:none">Jeder Spieler bekommt <b>${b.textContent}</b>.</p><div class="row"><button class="btn grey" id="gaNo">Abbrechen</button><button class="btn gold" id="gaYes">Verschenken</button></div>`);
+  $('gaNo').onclick = closeModal;
+  $('gaYes').onclick = () => { closeModal(); adminCall({ action: 'giveAll', ...g }); };
+});
+$('annForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('annIn').value.trim();
+  if (!text) return;
+  const r = await adminCall({ action: 'announce', text });
+  if (!r.error) $('annIn').value = '';
+});
+$('motdForm').addEventListener('submit', async (e) => { e.preventDefault(); const r = await adminCall({ action: 'motd', text: $('motdIn').value }); if (r.server) renderServer(r.server); });
+$('maintForm').addEventListener('submit', async (e) => { e.preventDefault(); const r = await adminCall({ action: 'maintenance', on: true, text: $('maintIn').value }); if (r.server) renderServer(r.server); });
+$('maintOff').onclick = async () => { const r = await adminCall({ action: 'maintenance', on: false }); if (r.server) renderServer(r.server); };
+
+function renderLog(r) {
+  const list = (r && r.log) || [];
+  $('adminLogList').innerHTML = list.length ? list.map((l) => `<div class="alog"><small>${fmtDate(l.at)}</small> · <b>${escapeHtml(l.admin)}</b> · ${escapeHtml(l.action)}<br><small>${escapeHtml(l.detail)}</small></div>`).join('') : '<p class="hint">Noch keine Admin-Aktionen.</p>';
 }
 
 $('adminLock').addEventListener('submit', (e) => {
@@ -322,59 +473,33 @@ $('adminLock').addEventListener('submit', (e) => {
   try { sessionStorage.setItem('kk_admin', adminCode); } catch { /* egal */ }
   openAdmin();
 });
-$('annForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const text = $('annIn').value.trim();
-  if (!text) return;
-  const r = await adminCall({ action: 'announce', text });
-  if (!r.error) $('annIn').value = '';
-});
-$('findForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const r = await adminCall({ action: 'find', login: $('findIn').value.trim() });
-  renderAdminPlayer(r.player || null);
-});
 
-function renderAdminPlayer(p) {
-  const el = $('adminPlayer');
-  if (!p) { el.innerHTML = ''; return; }
-  const total = Object.values(p.trophies).reduce((a, b) => a + b, 0);
-  el.innerHTML = `<div class="pcard">
-    <h3>${escapeHtml(p.name)} ${p.admin ? '🛡️' : ''}</h3>
-    <div class="meta">@${escapeHtml(p.login)} · 🏆 ${total} · ● ${p.coins} · ◆ ${p.gems} · 🎁 ${p.boxes} · ${p.unlocked.length}/8 Brawler · ${p.games} Spiele, ${p.wins} Siege
-      ${p.banned ? '<br><span class="banned">⛔ Gesperrt</span>' : ''}</div>
-    <div class="abtns">
-      <button class="btn" data-give='{"coins":100}'>+100 ●</button>
-      <button class="btn" data-give='{"coins":1000}'>+1000 ●</button>
-      <button class="btn" data-give='{"gems":50}'>+50 ◆</button>
-      <button class="btn" data-give='{"gems":500}'>+500 ◆</button>
-      <button class="btn" data-give='{"boxes":1}'>+1 🎁</button>
-      <button class="btn" data-give='{"boxes":10}'>+10 🎁</button>
+// Admin-Kräfte im laufenden Match
+let adminPowers = { god: false, ammo: false, super: false, speed: false };
+function powersModal() {
+  const P = adminPowers;
+  modal(`<h2>🛡️ Admin-Kräfte</h2>
+    <div class="powers">
+      <button class="btn ${P.god ? 'on' : ''}" data-pw="god">🛡️ Unverwundbar</button>
+      <button class="btn ${P.ammo ? 'on' : ''}" data-pw="ammo">♾️ Unendlich Munition</button>
+      <button class="btn ${P.super ? 'on' : ''}" data-pw="super">★ Super immer bereit</button>
+      <button class="btn ${P.speed ? 'on' : ''}" data-pw="speed">⚡ Doppeltes Tempo</button>
+      <button class="btn" data-pw="heal">❤️ Heilen</button>
+      <button class="btn red" data-pw="nuke">💥 Alle Gegner besiegen</button>
     </div>
-    <div class="abtns">
-      <button class="btn gold" data-act="unlockAll">Alle Brawler freischalten</button>
-      <button class="btn gold" data-act="maxAll">Alle auf Max-Stufe</button>
-    </div>
-    <div class="troprow">Trophäen für
-      <select id="trBrawler">${BRAWLER_ORDER.map((k) => `<option value="${k}">${BRAWLERS[k].name} (${p.trophies[k]})</option>`).join('')}</select>
-      <input id="trValue" type="number" min="0" max="100000" placeholder="Anzahl">
-      <button class="btn" id="trSet">Setzen</button>
-    </div>
-    <div class="abtns" style="margin-top:12px">
-      ${p.admin ? '' : (p.banned ? '<button class="btn" data-ban="0">Sperre aufheben</button>' : '<button class="btn red" data-ban="1">⛔ Sperren</button>')}
-    </div>
-  </div>`;
-  const run = async (m) => { const r = await adminCall({ ...m, login: p.login }); if (r.player) renderAdminPlayer(r.player); };
-  el.querySelectorAll('[data-give]').forEach((b) => b.onclick = () => run({ action: 'give', ...JSON.parse(b.dataset.give) }));
-  el.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => run({ action: b.dataset.act }));
-  $('trSet').onclick = () => run({ action: 'trophies', brawler: $('trBrawler').value, value: +$('trValue').value || 0 });
-  el.querySelectorAll('[data-ban]').forEach((b) => b.onclick = () => {
-    if (b.dataset.ban === '0') { run({ action: 'ban', on: false }); return; }
-    modal(`<h2>${escapeHtml(p.name)} sperren?</h2><p class="hint" style="max-width:none">Der Spieler wird sofort rausgeworfen und kann sich nicht mehr anmelden, bis du die Sperre aufhebst.</p><div class="row"><button class="btn grey" id="banNo">Abbrechen</button><button class="btn red" id="banYes">Sperren</button></div>`);
-    $('banNo').onclick = closeModal;
-    $('banYes').onclick = () => { closeModal(); run({ action: 'ban', on: true }); };
+    <div class="row" style="margin-top:10px"><button class="btn gold" data-pw="win">🏆 Match sofort gewinnen</button></div>
+    <div class="formmsg" id="pwMsg"></div>
+    <div class="row" style="margin-top:6px"><button class="btn grey" id="pwClose">Schließen</button></div>`);
+  $('pwClose').onclick = closeModal;
+  $('modalBox').querySelectorAll('[data-pw]').forEach((b) => b.onclick = async () => {
+    if (!adminCode) { $('pwMsg').textContent = 'Erst im Menü unter 🛡️ Admin den Code eingeben.'; return; }
+    const r = await friends.request({ action: 'match', power: b.dataset.pw, code: adminCode });
+    $('pwMsg').textContent = r.error || r.ok || '';
+    if (r.powers) { adminPowers = r.powers; if (!['heal', 'nuke', 'win'].includes(b.dataset.pw)) powersModal(); $('pwMsg').textContent = r.ok; }
+    if (b.dataset.pw === 'win' && !r.error) closeModal();
   });
 }
+$('btnAdminGame').onclick = () => powersModal();
 
 // ---------- Rangliste ----------
 async function renderRanking() {
@@ -625,6 +750,8 @@ function beginGame(s) {
   input.enabled = true;
   if (input.touchMode) document.body.classList.add('touch');
   $('helpText').style.display = input.touchMode ? 'none' : 'block';
+  adminPowers = { god: false, ammo: false, super: false, speed: false };
+  $('btnAdminGame').classList.toggle('hidden', !(account.admin && isLoggedIn() && s instanceof NetSession));
   $('killfeed').innerHTML = '';
   show('game');
 }
@@ -669,7 +796,8 @@ async function endGame(result, you, how) {
     <div>🏆 ${rw.troph >= 0 ? '+' : ''}${rw.troph}<small>Trophäen</small></div>
     <div><span style="color:#ffd23f">●</span> +${rw.coins}<small>Münzen</small></div>
     <div>🎁 +${rw.meter}%<small>Kisten-Fortschritt</small></div>
-    ${rw.newBoxes ? `<div style="animation-delay:.3s">🎁 +${rw.newBoxes}<small>Neue Kiste!</small></div>` : ''}`;
+    ${rw.newBoxes ? `<div style="animation-delay:.3s">🎁 +${rw.newBoxes}<small>Neue Kiste!</small></div>` : ''}
+    ${rw.boost > 1 ? `<div style="animation-delay:.45s">🎉 ×${rw.boost}<small>Event-Bonus</small></div>` : ''}`;
   const rows = [...result.players].sort((a, b) => result.mode === 'ffa' ? a.rank - b.rank : (a.team - b.team) || (b.kills - a.kills));
   const myTeam = youP.team;
   $('resTable').innerHTML = `<tr><th>Spieler</th><th>Brawler</th><th>K.O.s</th><th>Tode</th><th>Schaden</th></tr>` + rows.map((p) => {
