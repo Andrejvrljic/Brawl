@@ -3,9 +3,15 @@ import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { startServer } from '../server/app.js';
 
-let app, base;
-before(async () => { app = await startServer({ port: 0, dbPath: ':memory:', quiet: true }); base = `http://127.0.0.1:${app.port}`; });
-after(async () => { await app.close(); });
+// TEST_URL=https://… prüft einen laufenden Server (z. B. Cloudflare), sonst startet ein lokaler Testserver
+let app, base, wsBase;
+before(async () => {
+  if (process.env.TEST_URL) base = process.env.TEST_URL.replace(/\/$/, '');
+  else { app = await startServer({ port: 0, dbPath: ':memory:', quiet: true }); base = `http://127.0.0.1:${app.port}`; }
+  wsBase = base.replace(/^http/, 'ws');
+});
+after(async () => { if (app) await app.close(); });
+const LOGIN = 'test' + Math.random().toString(36).slice(2, 10);
 
 async function api(method, url, body, token) {
   const res = await fetch(base + url, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -33,18 +39,18 @@ test('Konto: Gast anlegen, Aktion, sichern, auf anderem Gerät anmelden', async 
 
   assert.equal((await api('POST', '/api/action', { type: 'upgrade', key: 'funke' })).status, 401);
 
-  const reg = await api('POST', '/api/register', { login: 'testheld', password: 'geheim123' }, t1);
+  const reg = await api('POST', '/api/register', { login: LOGIN, password: 'geheim123' }, t1);
   assert.equal(reg.status, 200);
   assert.equal(reg.data.account.registered, true);
 
-  assert.equal((await api('POST', '/api/login', { login: 'testheld', password: 'falsch!!' })).status, 401);
-  const li = await api('POST', '/api/login', { login: 'TESTHELD', password: 'geheim123' });
+  assert.equal((await api('POST', '/api/login', { login: LOGIN, password: 'falsch!!' })).status, 401);
+  const li = await api('POST', '/api/login', { login: LOGIN.toUpperCase(), password: 'geheim123' });
   assert.equal(li.status, 200);
   assert.notEqual(li.data.token, t1);
   assert.equal(li.data.profile.levels.funke, 2, 'gleicher Fortschritt auf dem zweiten Gerät');
 
   const dup = await api('POST', '/api/guest', {});
-  assert.equal((await api('POST', '/api/register', { login: 'testheld', password: 'geheim123' }, dup.data.token)).status, 400);
+  assert.equal((await api('POST', '/api/register', { login: LOGIN, password: 'geheim123' }, dup.data.token)).status, 400);
 });
 
 test('Bot-Match-Ergebnis wird gutgeschrieben und gedrosselt', async () => {
@@ -56,7 +62,7 @@ test('Bot-Match-Ergebnis wird gutgeschrieben und gedrosselt', async () => {
   const r2 = await api('POST', '/api/action', { type: 'offline', result, you: 1 }, data.token);
   assert.equal(r2.status, 429);
   const lb = await api('GET', '/api/leaderboard');
-  assert.ok(lb.data.top.some((p) => p.trophies === 8));
+  assert.ok(lb.data.top.some((p) => p.trophies >= 8));
   const me = await api('GET', '/api/me', null, data.token);
   assert.equal(me.data.history.length, 1);
 });
@@ -64,7 +70,7 @@ test('Bot-Match-Ergebnis wird gutgeschrieben und gedrosselt', async () => {
 test('Online-Raum: Server nutzt den Brawler aus der Datenbank', async () => {
   const { data } = await api('POST', '/api/guest', {});
   await api('POST', '/api/action', { type: 'select', key: 'brocken' }, data.token);
-  const ws = new WebSocket(`ws://127.0.0.1:${app.port}`);
+  const ws = new WebSocket(wsBase);
   const msgs = [];
   await new Promise((ok) => ws.on('open', ok));
   ws.on('message', (m) => msgs.push(JSON.parse(m)));

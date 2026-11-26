@@ -1,0 +1,90 @@
+# Veröffentlicht Kistenkrawall auf Cloudflare – wie ECLIPSE:
+#   Worker (Spielseite + API), Durable Object (Multiplayer-Server), D1 (Datenbank)
+# Adresse: https://kistenkrawall.<deine-subdomain>.workers.dev
+#
+# Einmalig nötig (Settings → Secrets and variables → Actions → New repository secret):
+#   CLOUDFLARE_API_TOKEN   – derselbe Token wie bei ECLIPSE (Rechte: Workers Scripts Edit, D1 Edit)
+#   CLOUDFLARE_ACCOUNT_ID  – optional, wird sonst automatisch ermittelt
+name: Cloudflare (Multiplayer + Datenbank)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Secret prüfen
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Das Repository-Secret CLOUDFLARE_API_TOKEN fehlt (Settings → Secrets and variables → Actions). Nimm denselben Cloudflare-Token wie bei ECLIPSE."
+            exit 1
+          fi
+
+      - name: Abhängigkeiten, Tests und Wrangler
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          npm install --no-save --no-audit --no-fund wrangler@4
+
+      - name: Cloudflare-Konto ermitteln
+        run: |
+          API=https://api.cloudflare.com/client/v4
+          AUTH="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          ACC="$CLOUDFLARE_ACCOUNT_ID"
+          if [ -z "$ACC" ]; then
+            ACC="$(curl -fsS -H "$AUTH" "$API/accounts?per_page=5" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s).result||[];process.stdout.write(r[0]?r[0].id:"")})')"
+          fi
+          if [ -z "$ACC" ]; then echo "::error::Cloudflare-Konto nicht gefunden. Lege das Secret CLOUDFLARE_ACCOUNT_ID an."; exit 1; fi
+          echo "CLOUDFLARE_ACCOUNT_ID=$ACC" >> "$GITHUB_ENV"
+          SUB="$(curl -sS -H "$AUTH" "$API/accounts/$ACC/workers/subdomain" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);process.stdout.write((j.result&&j.result.subdomain)||"")}catch{}})')"
+          if [ -z "$SUB" ]; then echo "::error::Keine workers.dev-Subdomain gefunden. Lass einmal den ECLIPSE-Workflow laufen oder lege sie im Cloudflare-Dashboard an."; exit 1; fi
+          echo "SUBDOMAIN=$SUB" >> "$GITHUB_ENV"
+          echo "Subdomain: $SUB.workers.dev"
+
+      - name: D1-Datenbank sicherstellen
+        run: |
+          find_db() {
+            npx wrangler d1 list --json 2>/dev/null | node -e '
+              let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+                const i = s.indexOf("["); if (i < 0) return;
+                const db = JSON.parse(s.slice(i)).find(x => x.name === "kistenkrawall-db");
+                if (db) process.stdout.write(db.uuid || db.id || "");
+              });'
+          }
+          DB_ID="$(find_db)"
+          if [ -z "$DB_ID" ]; then
+            echo "Lege D1-Datenbank kistenkrawall-db an …"
+            npx wrangler d1 create kistenkrawall-db
+            DB_ID="$(find_db)"
+          fi
+          if [ -z "$DB_ID" ]; then echo "::error::D1-Datenbank konnte nicht angelegt werden. Hat der Token das Recht D1: Edit?"; exit 1; fi
+          sed -i "s/__D1_DATABASE_ID__/$DB_ID/" wrangler.toml
+          echo "D1-Datenbank: $DB_ID"
+
+      - name: Spiel veröffentlichen
+        run: |
+          npx wrangler deploy
+          echo "::notice title=Kistenkrawall::https://kistenkrawall.$SUBDOMAIN.workers.dev"
+          echo "### 🥊 Online: https://kistenkrawall.$SUBDOMAIN.workers.dev" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Live-Test (Konten, Datenbank, Multiplayer-Raum)
+        run: |
+          URL="https://kistenkrawall.$SUBDOMAIN.workers.dev"
+          for i in $(seq 1 20); do curl -fs "$URL/health" >/dev/null && break; sleep 3; done
+          TEST_URL="$URL" node --disable-warning=ExperimentalWarning --test test/server.test.js
