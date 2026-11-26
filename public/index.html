@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#2a1b5e">
+  <title>Kistenkrawall</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="overlay"></div>
+
+  <!-- ========== HAUPTMENÜ ========== -->
+  <section id="home" class="screen">
+    <header class="topbar">
+      <button class="namebox" id="btnName" title="Namen ändern"><span class="ico">👤</span><span id="playerName">Spieler</span></button>
+      <div class="res"><span class="ico">🏆</span><b id="resTroph">0</b></div>
+      <div class="res"><span class="ico coin">●</span><b id="resCoins">0</b></div>
+      <div class="res"><span class="ico gem">◆</span><b id="resGems">0</b></div>
+      <button class="iconbtn" id="btnSound" title="Ton an/aus">🔊</button>
+    </header>
+    <nav class="sidenav">
+      <button class="navbtn" data-go="brawlers"><span class="big">🥊</span>Brawler</button>
+      <button class="navbtn" data-go="road"><span class="big">🏆</span>Trophäen<span class="badge" id="badgeRoad"></span></button>
+      <button class="navbtn" data-go="boxes"><span class="big">🎁</span>Kisten<span class="badge" id="badgeBox"></span></button>
+    </nav>
+    <div class="homeinfo">
+      <div class="selname" id="selName">Funke</div>
+      <div class="selmeta" id="selMeta">Allrounder · Stufe 1 · 🏆 0</div>
+    </div>
+    <div class="playarea">
+      <div class="boxmeter"><span>Kisten-Fortschritt</span><div class="bar"><i id="boxMeterFill"></i></div></div>
+      <button class="modebtn" id="btnMode"><small>Modus</small><b id="modeName">Team-K.O.</b></button>
+      <div class="netrow">
+        <button class="chip on" id="netOnline">🌐 Online</button>
+        <button class="chip" id="netOffline">🤖 Gegen Bots</button>
+      </div>
+      <button class="playbtn" id="btnPlay">SPIELEN</button>
+      <div class="friendrow">
+        <button class="chip small" id="btnCreate">Raum erstellen</button>
+        <button class="chip small" id="btnJoin">Code beitreten</button>
+      </div>
+      <div class="online" id="onlineInfo"></div>
+    </div>
+  </section>
+
+  <!-- ========== BRAWLER ========== -->
+  <section id="brawlers" class="screen panelscreen hidden">
+    <header class="panelhead"><button class="back" data-go="home">◀</button><h2>Brawler</h2></header>
+    <div class="brawlerwrap">
+      <div class="grid" id="brawlerGrid"></div>
+      <div class="detail" id="brawlerDetail"></div>
+    </div>
+  </section>
+
+  <!-- ========== TROPHÄENSTRASSE ========== -->
+  <section id="road" class="screen panelscreen hidden">
+    <header class="panelhead"><button class="back" data-go="home">◀</button><h2>Trophäenstraße</h2><div class="res"><span class="ico">🏆</span><b id="roadTroph">0</b></div></header>
+    <div class="roadlist" id="roadList"></div>
+  </section>
+
+  <!-- ========== KISTEN ========== -->
+  <section id="boxes" class="screen panelscreen hidden">
+    <header class="panelhead"><button class="back" data-go="home">◀</button><h2>Kisten</h2></header>
+    <div class="boxstage">
+      <div class="bigbox" id="bigBox"><div class="lid"></div><div class="crate"></div><div class="shine"></div></div>
+      <div class="boxcount">Du hast <b id="boxCount">0</b> Kiste(n)</div>
+      <button class="playbtn" id="btnOpenBox">ÖFFNEN</button>
+      <div class="boxloot" id="boxLoot"></div>
+      <p class="hint">Kisten gibt es auf der Trophäenstraße und wenn der Kisten-Fortschritt durch Spiele voll wird.</p>
+    </div>
+  </section>
+
+  <!-- ========== MODUSWAHL ========== -->
+  <div id="modal" class="modal hidden"><div class="modalbox" id="modalBox"></div></div>
+
+  <!-- ========== LOBBY ========== -->
+  <section id="lobby" class="screen panelscreen hidden">
+    <div class="lobbybox">
+      <h2 id="lobbyTitle">Suche Mitspieler…</h2>
+      <div class="code" id="lobbyCode"></div>
+      <div class="lobbyplayers" id="lobbyPlayers"></div>
+      <div class="lobbytimer" id="lobbyTimer"></div>
+      <div class="row">
+        <button class="playbtn small" id="btnStartNow">Jetzt starten</button>
+        <button class="chip" id="btnLeaveLobby">Abbrechen</button>
+      </div>
+      <p class="hint">Freie Plätze werden mit Bots aufgefüllt.</p>
+    </div>
+  </section>
+
+  <!-- ========== HUD ========== -->
+  <section id="hud" class="hidden">
+    <button class="iconbtn leave" id="btnLeave" title="Verlassen">✕</button>
+    <div class="scoreboard" id="scoreboard"></div>
+    <div class="killfeed" id="killfeed"></div>
+    <div class="countdown" id="countdown"></div>
+    <div class="respawn hidden" id="respawn">K.O.! Zurück in <b id="respawnT">3</b></div>
+    <div class="superbar" id="superBar"><span>SUPER</span><div class="bar"><i id="superFill"></i></div><em>Rechtsklick / Leertaste</em></div>
+    <div class="help" id="helpText">WASD laufen · Linksklick angreifen · Rechtsklick/Leertaste Super · Shift: Super zielen</div>
+    <div id="stickMove" class="stick"><div class="knob"></div></div>
+    <div id="btnSup" class="abtn sup"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44"/><circle class="prog" id="supProg" cx="50" cy="50" r="44"/></svg><div class="knob">★</div></div>
+    <div id="btnAtk" class="abtn atk"><div class="knob">✊</div></div>
+  </section>
+
+  <!-- ========== ERGEBNIS ========== -->
+  <section id="results" class="screen panelscreen hidden">
+    <div class="resultbox">
+      <h1 id="resTitle">SIEG!</h1>
+      <div class="ressub" id="resSub"></div>
+      <div class="rewards" id="resRewards"></div>
+      <table class="restable" id="resTable"></table>
+      <button class="playbtn" id="btnContinue">WEITER</button>
+    </div>
+  </section>
+
+  <div id="toast" class="toast hidden"></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
