@@ -42,6 +42,15 @@ export class Database {
         online     INTEGER NOT NULL,
         played     INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS friends (
+        a         INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        b         INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        requester INTEGER NOT NULL,
+        status    TEXT NOT NULL,
+        created   INTEGER NOT NULL,
+        PRIMARY KEY (a, b)
+      );
+      CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b);
       CREATE INDEX IF NOT EXISTS idx_accounts_trophies ON accounts(trophies DESC);
       CREATE INDEX IF NOT EXISTS idx_matches_account ON matches(account_id, played DESC);
     `);
@@ -57,7 +66,16 @@ export class Database {
       getSess: q('SELECT account_id FROM sessions WHERE token_hash = ?'),
       touchSess: q('UPDATE sessions SET last_used = ? WHERE token_hash = ?'),
       delSess: q('DELETE FROM sessions WHERE token_hash = ?'),
-      top: q('SELECT id, name, trophies, login IS NOT NULL AS registered FROM accounts WHERE trophies > 0 ORDER BY trophies DESC, updated ASC LIMIT ?'),
+      top: q('SELECT id, name, trophies, login IS NOT NULL AS registered FROM accounts WHERE trophies > 0 AND login IS NOT NULL ORDER BY trophies DESC, updated ASC LIMIT ?'),
+      insertReg: q('INSERT INTO accounts (login, pass, name, profile, trophies, created, updated) VALUES (?, ?, ?, ?, 0, ?, ?)'),
+      friendGet: q('SELECT * FROM friends WHERE a = ? AND b = ?'),
+      friendIns: q('INSERT INTO friends (a, b, requester, status, created) VALUES (?, ?, ?, ?, ?)'),
+      friendAcc: q("UPDATE friends SET status = 'accepted' WHERE a = ? AND b = ?"),
+      friendDel: q('DELETE FROM friends WHERE a = ? AND b = ?'),
+      friendCount: q('SELECT COUNT(*) AS n FROM friends WHERE a = ? OR b = ?'),
+      friendList: q(`SELECT f.requester, f.status, acc.id, acc.name, acc.login, acc.trophies FROM friends f
+        JOIN accounts acc ON acc.id = CASE WHEN f.a = ? THEN f.b ELSE f.a END
+        WHERE f.a = ? OR f.b = ? ORDER BY acc.name COLLATE NOCASE`),
       rank: q('SELECT COUNT(*) + 1 AS r FROM accounts WHERE trophies > ?'),
       insertMatch: q('INSERT INTO matches (account_id, mode, brawler, outcome, trophies, kills, online, played) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'),
       history: q('SELECT mode, brawler, outcome, trophies, kills, online, played FROM matches WHERE account_id = ? ORDER BY played DESC LIMIT ?'),
@@ -103,7 +121,54 @@ export class Database {
 
   logout(token) { if (typeof token === 'string') this.q.delSess.run(sha(token)); }
 
-  // Gastkonto mit Login + Passwort sichern
+  // Neues Konto direkt mit Benutzername + Passwort
+  createAccount(login, password) {
+    const err = checkLogin(login, password);
+    if (err) return { error: err };
+    if (this.q.getByLogin.get(login)) return { error: 'Dieser Benutzername ist schon vergeben.' };
+    const p = freshProfile();
+    p.name = login.slice(0, 14);
+    const now = Date.now();
+    const r = this.q.insertReg.run(login, hashPassword(password), p.name, JSON.stringify(p), now, now);
+    const id = Number(r.lastInsertRowid);
+    return { id, token: this.newSession(id) };
+  }
+
+  // ---------- Freunde ----------
+  friends(id) {
+    return this.q.friendList.all(id, id, id).map((r) => ({
+      id: r.id, name: r.name, login: r.login, trophies: r.trophies,
+      status: r.status === 'accepted' ? 'friend' : (r.requester === id ? 'outgoing' : 'incoming'),
+    }));
+  }
+  areFriends(x, y) { const [a, b] = x < y ? [x, y] : [y, x]; const f = this.q.friendGet.get(a, b); return !!f && f.status === 'accepted'; }
+  friendRequest(id, login) {
+    const other = typeof login === 'string' ? this.q.getByLogin.get(login.trim()) : null;
+    if (!other) return { error: 'Diesen Benutzernamen gibt es nicht.' };
+    if (other.id === id) return { error: 'Du kannst dich nicht selbst hinzufügen.' };
+    const [a, b] = id < other.id ? [id, other.id] : [other.id, id];
+    const f = this.q.friendGet.get(a, b);
+    if (f && f.status === 'accepted') return { error: 'Ihr seid schon Freunde.' };
+    if (f && f.requester === id) return { error: 'Anfrage wurde schon gesendet.' };
+    if (f) { this.q.friendAcc.run(a, b); return { ok: true, other: other.id, accepted: true }; } // Gegenanfrage = annehmen
+    if (this.q.friendCount.get(id, id).n >= 100) return { error: 'Maximal 100 Freunde.' };
+    this.q.friendIns.run(a, b, id, 'pending', Date.now());
+    return { ok: true, other: other.id };
+  }
+  friendRespond(id, otherId, accept) {
+    const [a, b] = id < otherId ? [id, otherId] : [otherId, id];
+    const f = this.q.friendGet.get(a, b);
+    if (!f || f.status !== 'pending' || f.requester === id) return { error: 'Keine offene Anfrage.' };
+    if (accept) this.q.friendAcc.run(a, b); else this.q.friendDel.run(a, b);
+    return { ok: true };
+  }
+  friendRemove(id, otherId) {
+    const [a, b] = id < otherId ? [id, otherId] : [otherId, id];
+    this.q.friendDel.run(a, b);
+    return { ok: true };
+  }
+
+  // Gastkonto mit Login + Passwort sichern (alte Gastkonten)
   register(acc, login, password) {
     const err = checkLogin(login, password);
     if (err) return { error: err };

@@ -51,19 +51,35 @@ function applyServer(data) {
   if (data.account) Object.assign(account, data.account, { mode: 'server' });
 }
 
-// Beim Start: Konto laden oder Gastkonto anlegen (alter Browser-Spielstand wird übernommen)
+// Beim Start: angemeldetes Konto laden.
+// Rückgabe: 'ok' (angemeldet), 'auth' (Server da, Anmeldung nötig), 'offline' (kein Server – nur gegen Bots)
 export async function initSave() {
   let local = null;
   try { local = JSON.parse(ls.get(LOCAL_KEY)); } catch { local = null; }
   try {
     if (ls.get(TOKEN_KEY)) {
-      try { applyServer(await call('GET', '/api/me')); return; } catch (e) { if (e.status !== 401) throw e; ls.del(TOKEN_KEY); }
+      try {
+        applyServer(await call('GET', '/api/me'));
+        return account.registered ? 'ok' : 'auth'; // altes Gastkonto: muss noch ein Konto erstellen
+      } catch (e) { if (e.status !== 401) throw e; ls.del(TOKEN_KEY); }
     }
-    applyServer(await call('POST', '/api/guest', { import: local && local.stats ? local : null }));
+    await call('GET', '/api/health');
+    account.mode = 'server';
+    return 'auth';
   } catch {
     account.mode = 'local';
     setProfile(local);
+    return 'offline';
   }
+}
+
+// Konto erstellen (ein altes Gastkonto wird dabei gesichert und behält seinen Fortschritt)
+export async function signup(login, password) {
+  try {
+    if (ls.get(TOKEN_KEY) && !account.registered) applyServer(await call('POST', '/api/register', { login, password }));
+    else applyServer(await call('POST', '/api/signup', { login, password }));
+    return null;
+  } catch (e) { return e.message; }
 }
 
 // Aktion ausführen (Server prüft und speichert in der Datenbank)
@@ -102,12 +118,12 @@ export async function login(loginName, password) {
 export async function logout() {
   try { await call('POST', '/api/logout'); } catch { /* egal */ }
   ls.del(TOKEN_KEY);
-  ls.del(LOCAL_KEY);
   Object.assign(account, { registered: false, login: null, rank: null });
-  await initSave();
+  setProfile(null);
 }
 export async function leaderboard() { return (await call('GET', '/api/leaderboard')).top; }
 export const token = () => (account.mode === 'server' ? ls.get(TOKEN_KEY) : null);
+export const isLoggedIn = () => account.mode === 'server' && account.registered && !!ls.get(TOKEN_KEY);
 
 export const totalTrophies = () => P.totalTrophies(save);
 export const roadAvailable = () => P.roadAvailable(save);
