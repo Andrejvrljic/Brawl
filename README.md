@@ -6,7 +6,7 @@ Ein 3D-Arena-Brawler aus der Vogelperspektive – mit Online-Multiplayer, 8 Braw
 
 ```bash
 npm install
-npm start
+npm start        # Node.js 22.13 oder neuer
 ```
 
 Dann im Browser **http://localhost:3000** öffnen.
@@ -45,10 +45,35 @@ Büsche verstecken dich, Kisten blocken Schüsse (manche Supers sprengen sie), W
 - **Juwelen** → Skins (Gold, Schatten)
 - **Kisten** aus der Straße und dem Kisten-Fortschritt (füllt sich mit jedem Spiel), manchmal mit neuem Brawler
 
-Der Fortschritt wird im Browser gespeichert.
+## Datenbank & Konten
+
+Der Server speichert alles in einer **SQLite-Datenbank** (`data/kistenkrawall.db`, in Node eingebaut – kein Extra-Programm nötig):
+
+- **Konten:** Beim ersten Start bekommt jedes Gerät automatisch ein Gastkonto. Über 👤 → *Konto sichern* (Benutzername + Passwort) kannst du dich auf anderen Geräten anmelden und weiterspielen.
+- **Fortschritt:** Trophäen, Münzen, Juwelen, Stufen, Skins, Kisten und Trophäenstraße liegen in der Datenbank. Der Server prüft jede Aktion (z. B. ob genug Münzen da sind).
+- **Online-Matches:** Der Server rechnet die Belohnung selbst aus und nimmt Brawler und Stufe aus der Datenbank – Schummeln im Browser bringt nichts.
+- **Rangliste:** 📊 im Hauptmenü zeigt die Top 50 nach Trophäen.
+- **Match-Verlauf** pro Konto.
+
+Ein alter Spielstand aus dem Browser wird beim ersten Verbinden übernommen. Ohne Server (z. B. als reine Webseite) speichert das Spiel weiterhin im Browser.
+Passwörter werden mit scrypt gehasht, Anmelde-Schlüssel nur als Hash gespeichert. Die Datei per `DB_PATH=/pfad/zur.db npm start` verlegen.
+
+## GitHub Actions
+
+- **Tests** (`.github/workflows/ci.yml`): Bei jedem Push werden Spiellogik, Belohnungen, Datenbank, API und Server getestet (`npm test`).
+- **Docker-Image** (`.github/workflows/docker.yml`): Bei Push auf `main` wird ein fertiges Image mit Spiel + Server + Datenbank gebaut und unter `ghcr.io/<besitzer>/<repo>:latest` abgelegt.
+
+GitHub Actions kann den Server nicht dauerhaft laufen lassen (Jobs enden nach dem Durchlauf). Zum Hosten das Image auf einem Server/VPS starten – die Datenbank liegt dabei in einem Volume und übersteht Updates:
+
+```bash
+docker run -d --name kistenkrawall -p 3000:3000 -v kistenkrawall-daten:/app/data ghcr.io/<besitzer>/<repo>:latest
+```
 
 ## Technik
 
 - `public/shared/` – Spielsimulation (Karte, Brawler, Spiellogik, Bot-KI), läuft auf dem Server **und** offline im Browser
-- `server/index.js` – Node-Server: liefert das Spiel aus, WebSocket-Räume, Matchmaking, 30 Ticks/s
+- `public/shared/progress.js` – Belohnungsregeln (gleich auf Server und Client)
+- `server/app.js` – Node-Server: liefert das Spiel aus, REST-API, WebSocket-Räume, Matchmaking, 30 Ticks/s
+- `server/db.js` – SQLite-Datenbank (Konten, Sitzungen, Fortschritt, Matches, Rangliste)
+- `test/` – automatische Tests
 - `public/js/` – three.js-Darstellung, Steuerung, Menüs, Belohnungen, Client-Vorhersage + Interpolation
