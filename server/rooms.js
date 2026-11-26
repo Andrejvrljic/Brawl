@@ -3,7 +3,10 @@
 import { Game, MODES } from '../public/shared/game.js';
 import { applyMatch } from '../public/shared/progress.js';
 import { publicProfile, limited } from './api.js';
-import { isAdminName, adminEnabled, checkCode, summary, applyAdminEdit } from './admin.js';
+import { isAdminName, adminEnabled, checkCode, summary, applyAdminEdit, serverInfo, eventBoost } from './admin.js';
+
+const powers = (p) => ({ god: !!p.god, ammo: !!p.infAmmo, super: !!p.infSuper, speed: p.speedMul === 2 });
+const ACTION_NAMES = { give: 'Geschenk', trophies: 'Trophäen gesetzt', unlockAll: 'Alle Brawler', maxAll: 'Max-Stufe', level: 'Stufe gesetzt', skinsAll: 'Alle Skins', rename: 'Umbenannt', resetProgress: 'Fortschritt zurückgesetzt' };
 
 const TICK = 1 / 30;
 const QUEUE_WAIT = 12; // Sekunden bis Bots auffüllen
@@ -141,8 +144,12 @@ export class Arena {
         const acc = m.token ? await this.db.byToken(m.token) : null;
         if (c.closed) return;
         if (!acc || !acc.registered) { this.send(c, { t: 'error', msg: 'Bitte melde dich an, um online zu spielen.' }); return; }
+        if (!isAdminName(acc.login)) {
+          const info = await serverInfo(this.db);
+          if (info.maintenance) { this.send(c, { t: 'error', msg: '🔧 ' + info.maintenance.text }); return; }
+        }
         const p = acc.profile, k = p.selected;
-        c.accId = acc.id;
+        c.accId = acc.id; c.login = acc.login;
         c.info = { name: p.name, brawler: k, level: p.levels[k], skin: p.skinSel[k] || 0 };
         const mode = MODES[m.mode] ? m.mode : 'teamko';
         let room;
@@ -177,37 +184,162 @@ export class Arena {
     if (!checkCode(m.code)) { this.adminFails.set(c.accId, { n: f.n + 1, t: Date.now() }); return { error: 'Falscher Admin-Code.', badCode: true }; }
     this.adminFails.delete(c.accId);
     const db = this.db;
+    const log = (action, detail) => Promise.resolve().then(() => db.logAdmin(c.login, action, detail)).catch((e) => console.error('Admin-Protokoll', e));
+    const clean = (v, n) => String(v || '').replace(/[<>]/g, '').trim().slice(0, n);
+
     switch (m.action) {
-      case 'check': {
+      case 'check':
+      case 'overview': {
         let playing = 0;
-        for (const r of this.rooms.values()) if (r.state === 'play') playing += r.clients.size;
-        return { ok: true, stats: { accounts: await db.accountCount(), online: this.online.size, rooms: this.rooms.size, playing } };
+        const rooms = [];
+        for (const r of this.rooms.values()) {
+          if (r.state === 'play') playing += r.clients.size;
+          const g = r.game;
+          rooms.push({
+            id: r.id, code: r.code, mode: r.mode, state: r.state,
+            score: g ? g.score.map((x) => Math.floor(x)) : null, timeLeft: g ? Math.ceil(g.timeLeft) : null,
+            players: g ? g.players.map((p) => ({ name: p.name, team: p.team, bot: p.bot, brawler: p.brawler, kills: p.kills }))
+              : [...r.clients].map((x) => ({ name: x.info.name, team: null, bot: false, brawler: x.info.brawler, kills: 0 })),
+          });
+        }
+        const online = [];
+        const seen = new Set();
+        for (const x of this.conns) {
+          if (!x.accId || seen.has(x.accId)) continue;
+          seen.add(x.accId);
+          online.push({ id: x.accId, name: x.name || x.info?.name || '?', login: x.login || null, status: this.status(x.accId) });
+        }
+        return { ok: true, stats: { accounts: await db.accountCount(), online: this.online.size, rooms: this.rooms.size, playing }, rooms, online, server: await serverInfo(db) };
       }
       case 'announce': {
-        const text = String(m.text || '').replace(/[<>]/g, '').trim().slice(0, 200);
+        const text = clean(m.text, 200);
         if (!text) return { error: 'Nachricht ist leer.' };
         for (const x of this.conns) this.send(x, { t: 'announce', text, from: c.name });
+        await log('Nachricht an alle', text);
         return { ok: 'Nachricht an alle gesendet.' };
       }
+      case 'search': {
+        const q = clean(m.q, 20);
+        if (!q) return { ok: true, list: [] };
+        return { ok: true, list: await db.searchAccounts(q, 12) };
+      }
+      case 'endRoom': {
+        const r = this.rooms.get(m.roomId | 0);
+        if (!r) return { error: 'Raum existiert nicht mehr.' };
+        if (r.state === 'play' && r.game && !r.game.over) r.game.finish(Number.isInteger(m.winner) ? m.winner : -1);
+        else { for (const x of [...r.clients]) { this.send(x, { t: 'error', msg: 'Der Raum wurde von einem Admin geschlossen.' }); r.remove(x); } r.close(); }
+        await log('Match beendet', `Raum ${r.id} (${r.mode})`);
+        return { ok: 'Match beendet.' };
+      }
+      case 'event': {
+        const minutes = Math.max(0, Math.min(24 * 60, m.minutes | 0));
+        if (!minutes) await db.setSetting('event', null);
+        else await db.setSetting('event', JSON.stringify({ kind: 'double', until: Date.now() + minutes * 60000 }));
+        const info = await serverInfo(db);
+        for (const x of this.conns) this.send(x, { t: 'news', news: info });
+        if (minutes) for (const x of this.conns) this.send(x, { t: 'announce', text: `🎉 Event: Doppelte Belohnungen für ${minutes} Minuten!`, from: c.name });
+        await log('Event', minutes ? `Doppelte Belohnungen, ${minutes} Min.` : 'beendet');
+        return { ok: minutes ? 'Event gestartet!' : 'Event beendet.', server: info };
+      }
+      case 'maintenance': {
+        await db.setSetting('maintenance', m.on ? JSON.stringify({ on: true, text: clean(m.text, 160) }) : null);
+        const info = await serverInfo(db);
+        for (const x of this.conns) this.send(x, { t: 'news', news: info });
+        await log('Wartungsmodus', m.on ? 'an' : 'aus');
+        return { ok: m.on ? 'Wartungsmodus an – nur Admins können spielen.' : 'Wartungsmodus aus.', server: info };
+      }
+      case 'motd': {
+        const text = clean(m.text, 200);
+        await db.setSetting('motd', text || null);
+        const info = await serverInfo(db);
+        for (const x of this.conns) this.send(x, { t: 'news', news: info });
+        await log('Nachricht des Tages', text || '(gelöscht)');
+        return { ok: text ? 'Nachricht des Tages gespeichert.' : 'Nachricht des Tages gelöscht.', server: info };
+      }
+      case 'giveAll': {
+        const g = { coins: m.coins | 0, gems: m.gems | 0, boxes: m.boxes | 0 };
+        if (!g.coins && !g.gems && !g.boxes) return { error: 'Nichts ausgewählt.' };
+        const ids = await db.allAccountIds();
+        for (const id of ids.slice(0, 5000)) {
+          const acc = await db.account(id);
+          if (!acc) continue;
+          applyAdminEdit(acc.profile, { action: 'give', ...g });
+          await db.save(acc);
+        }
+        for (const x of this.conns) if (x.presence) this.send(x, { t: 'profileUpdate' });
+        const parts = [g.coins && `${g.coins} Münzen`, g.gems && `${g.gems} Juwelen`, g.boxes && `${g.boxes} Kisten`].filter(Boolean).join(', ');
+        for (const x of this.conns) this.send(x, { t: 'announce', text: `🎁 Geschenk für alle: ${parts}!`, from: c.name });
+        await log('Geschenk an alle', `${parts} an ${ids.length} Konten`);
+        return { ok: `Geschenk an ${ids.length} Spieler verteilt.` };
+      }
+      case 'log': return { ok: true, log: await db.adminLog(40) };
+
+      // ----- Admin-Kräfte im eigenen Match -----
+      case 'match': {
+        let room = null, gc = null;
+        for (const r of this.rooms.values()) for (const x of r.clients) if (x.accId === c.accId && r.state === 'play') { room = r; gc = x; }
+        if (!room) return { error: 'Du bist gerade in keinem Online-Match.' };
+        const g = room.game, p = g.byId.get(gc.pid);
+        if (!p) return { error: 'Spieler nicht gefunden.' };
+        switch (m.power) {
+          case 'god': p.god = !p.god; return { ok: p.god ? 'Unverwundbar: AN' : 'Unverwundbar: AUS', powers: powers(p) };
+          case 'ammo': p.infAmmo = !p.infAmmo; return { ok: p.infAmmo ? 'Unendlich Munition: AN' : 'Unendlich Munition: AUS', powers: powers(p) };
+          case 'super': p.infSuper = !p.infSuper; return { ok: p.infSuper ? 'Super immer bereit: AN' : 'Super immer bereit: AUS', powers: powers(p) };
+          case 'speed': p.speedMul = p.speedMul === 2 ? 1 : 2; return { ok: p.speedMul === 2 ? 'Doppeltes Tempo: AN' : 'Doppeltes Tempo: AUS', powers: powers(p) };
+          case 'heal': if (p.alive) p.hp = p.maxHp; return { ok: 'Geheilt.', powers: powers(p) };
+          case 'nuke': {
+            let n = 0;
+            for (const q of g.players) if (q.alive && q.team !== p.team) { q.invulnUntil = 0; g.damage(p, q, 1e9, { sup: true }); n++; }
+            await log('Match', `alle Gegner besiegt (${n})`);
+            return { ok: `${n} Gegner besiegt!`, powers: powers(p) };
+          }
+          case 'win': g.finish(p.team); await log('Match', 'sofort gewonnen'); return { ok: 'Match gewonnen!' };
+          default: return { error: 'Unbekannte Kraft.' };
+        }
+      }
     }
+
+    // ----- Aktionen für einen bestimmten Spieler -----
     const acc = await db.byLogin(String(m.login || ''));
     if (!acc) return { error: 'Spieler nicht gefunden.' };
-    if (m.action === 'find') return { ok: true, player: summary(acc) };
+    if (m.action === 'find') return { ok: true, player: { ...summary(acc), status: this.status(acc.id) } };
+    const protectedAdmin = isAdminName(acc.login) && acc.id !== c.accId;
+    if (m.action === 'kick') {
+      let n = 0;
+      for (const x of [...this.conns]) if (x.accId === acc.id) { this.send(x, { t: 'kickedSoft', msg: 'Ein Admin hat dich aus dem Match geworfen.' }); if (x.room) { x.room.remove(x); n++; } }
+      await log('Rauswurf', acc.login);
+      return { ok: n ? 'Spieler rausgeworfen.' : 'Spieler war in keinem Match.', player: { ...summary(acc), status: this.status(acc.id) } };
+    }
     if (m.action === 'ban') {
       if (isAdminName(acc.login)) return { error: 'Admins kann man nicht sperren.' };
       await db.setBan(acc.id, !!m.on);
       acc.banned = !!m.on;
-      if (m.on) {
-        // sofort rauswerfen
-        for (const x of [...this.conns]) if (x.accId === acc.id) { this.send(x, { t: 'kicked', msg: 'Dein Konto wurde gesperrt.' }); if (x.room) x.room.remove(x); }
-      }
+      if (m.on) for (const x of [...this.conns]) if (x.accId === acc.id) { this.send(x, { t: 'kicked', msg: 'Dein Konto wurde gesperrt.' }); if (x.room) x.room.remove(x); }
+      await log(m.on ? 'Gesperrt' : 'Entsperrt', acc.login);
       return { ok: m.on ? 'Spieler gesperrt.' : 'Sperre aufgehoben.', player: summary(acc) };
     }
+    if (m.action === 'password') {
+      if (protectedAdmin) return { error: 'Das Passwort anderer Admins kannst du nicht ändern.' };
+      const r = await db.setPassword(acc.id, String(m.password || ''));
+      if (r.error) return { error: r.error };
+      for (const x of [...this.conns]) if (x.accId === acc.id && x !== c) this.send(x, { t: 'kicked', msg: 'Dein Passwort wurde geändert. Bitte neu anmelden.' });
+      await log('Passwort geändert', acc.login);
+      return { ok: 'Neues Passwort gesetzt.', player: summary(acc) };
+    }
+    if (m.action === 'delete') {
+      if (isAdminName(acc.login)) return { error: 'Admin-Konten kann man nicht löschen.' };
+      for (const x of [...this.conns]) if (x.accId === acc.id) { this.send(x, { t: 'kicked', msg: 'Dein Konto wurde gelöscht.' }); if (x.room) x.room.remove(x); }
+      await db.deleteAccount(acc.id);
+      await log('Konto gelöscht', acc.login);
+      return { ok: 'Konto gelöscht.', deleted: true };
+    }
+    if (protectedAdmin && m.action === 'resetProgress') return { error: 'Den Fortschritt anderer Admins kannst du nicht zurücksetzen.' };
     const err = applyAdminEdit(acc.profile, m);
     if (err) return { error: err };
     await db.save(acc);
     this.sendTo(acc.id, { t: 'profileUpdate' });
-    return { ok: 'Gespeichert.', player: summary(acc) };
+    await log(ACTION_NAMES[m.action] || m.action, `${acc.login} ${JSON.stringify(Object.fromEntries(Object.entries(m).filter(([k]) => !['t', 'req', 'code', 'action', 'login'].includes(k))))}`);
+    return { ok: 'Gespeichert.', player: { ...summary(acc), status: this.status(acc.id) } };
   }
 
   lobbyTick() {
@@ -303,12 +435,14 @@ class Room {
   // Belohnung direkt in der Datenbank gutschreiben, dann Ergebnis senden
   async finish() {
     const g = this.game, db = this.arena.db;
+    let boost = 1;
+    try { boost = await eventBoost(db); } catch { /* egal */ }
     for (const c of [...this.clients]) {
       const msg = { t: 'end', result: g.result, you: c.pid };
       try {
         const acc = c.accId ? await db.account(c.accId) : null;
         if (acc) {
-          const reward = applyMatch(acc.profile, g.result, c.pid);
+          const reward = applyMatch(acc.profile, g.result, c.pid, boost);
           if (reward) {
             const me = g.result.players.find((p) => p.id === c.pid);
             await db.save(acc);

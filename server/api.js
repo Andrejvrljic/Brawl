@@ -2,7 +2,7 @@
 // Läuft gleich unter Node (SQLite) und Cloudflare (D1): alle Datenbank-Aufrufe werden mit await benutzt.
 import { MODES } from '../public/shared/game.js';
 import { runAction, applyMatch, totalTrophies } from '../public/shared/progress.js';
-import { isAdminName } from './admin.js';
+import { isAdminName, serverInfo, eventBoost } from './admin.js';
 
 const OFFLINE_MIN_GAP = 25 * 1000; // Mindestabstand zwischen gemeldeten Bot-Matches
 const hits = new Map();
@@ -17,7 +17,11 @@ export function limited(key, max, windowMs) {
 }
 
 export async function publicProfile(db, acc) {
-  return { profile: acc.profile, account: { registered: acc.registered, login: acc.login, admin: isAdminName(acc.login), rank: await db.rankOf(totalTrophies(acc.profile)) } };
+  return {
+    profile: acc.profile,
+    account: { registered: acc.registered, login: acc.login, admin: isAdminName(acc.login), rank: await db.rankOf(totalTrophies(acc.profile)) },
+    news: await serverInfo(db),
+  };
 }
 
 // Gibt { status, data } zurück
@@ -29,6 +33,7 @@ export async function handleApi(db, { method, path, body = {}, token = '', ip = 
   switch (`${method} ${path}`) {
     case 'GET /api/health': return out(200, { ok: true, accounts: await db.accountCount(), ...stats });
     case 'GET /api/leaderboard': return out(200, { top: await db.leaderboard(50) });
+    case 'GET /api/news': return out(200, await serverInfo(db));
     case 'POST /api/guest': return out(410, { error: 'Zum Spielen brauchst du ein Konto.' });
     case 'POST /api/signup': {
       if (limited('signup:' + ip, 20, 10 * 60000)) return out(429, { error: 'Zu viele neue Konten – später nochmal.' });
@@ -66,7 +71,7 @@ export async function handleApi(db, { method, path, body = {}, token = '', ip = 
         if (now - acc.lastOffline < OFFLINE_MIN_GAP) return out(429, { error: 'Match zu kurz für eine Belohnung.' });
         const r = body.result, me = r?.players?.find((x) => x.id === body.you);
         if (!me || !MODES[r.mode] || !acc.profile.unlocked.includes(me.brawler)) return out(400, { error: 'Ungültiges Ergebnis.' });
-        result = applyMatch(acc.profile, r, body.you);
+        result = applyMatch(acc.profile, r, body.you, await eventBoost(db));
         if (!result) return out(400, { error: 'Ungültiges Ergebnis.' });
         await db.setOffline(acc, now);
         await db.recordMatch(acc, r.mode, me.brawler, result, me.kills, false);

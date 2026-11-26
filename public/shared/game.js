@@ -170,7 +170,9 @@ export class Game {
 
     if (p.bot && this.phase === 'play') this.think(p, dt);
 
-    const speed = p.def.speed * (p.slowUntil > t ? p.slowF : 1);
+    const speed = p.def.speed * (p.slowUntil > t ? p.slowF : 1) * (p.speedMul || 1);
+    if (p.infAmmo) p.ammo = p.def.ammo;
+    if (p.infSuper) p.superCharge = 1;
     if (p.leap) {
       const L = p.leap;
       const k = Math.min(1, (t - L.t0) / L.dur);
@@ -344,7 +346,7 @@ export class Game {
   // ---------- Schaden / Heilung ----------
   damage(src, t, amt, o = {}) {
     if (!t.alive || this.over) return 0;
-    if (t.invulnUntil > this.time) return 0;
+    if (t.invulnUntil > this.time || t.god) return 0;
     amt = Math.max(1, Math.round(amt));
     t.hp -= amt;
     t.lastCombat = this.time;
@@ -518,11 +520,11 @@ export class Game {
       if (p.stunUntil > t) st |= 2;
       if (p.burnUntil > t) st |= 4;
       if (p.alive && this.map.isBushAt(p.x, p.y)) st |= 8;
-      if (p.invulnUntil > t) st |= 16;
+      if (p.invulnUntil > t || p.god) st |= 16;
       if (p.leap || p.dash || p.knock) st |= 32;
       if (p.superCharge >= 1) st |= 64;
       const o = { id: p.id, x: r2(p.x), y: r2(p.y), z: r2(p.z), f: r2(p.facing), hp: Math.round(p.hp), mhp: p.maxHp, al: p.alive ? 1 : 0, st, w: p.warp, kl: p.kills };
-      if (p.team === team) { o.am = r2(p.ammo); o.sc = r2(p.superCharge); }
+      if (p.team === team) { o.am = r2(p.ammo); o.sc = r2(p.superCharge); if (p.speedMul && p.speedMul !== 1) o.sm = p.speedMul; }
       if (!p.alive) o.rs = r2(Math.max(0, p.respawnAt - t));
       players.push(o);
     }

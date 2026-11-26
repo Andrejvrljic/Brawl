@@ -10,10 +10,13 @@ Ein 3D-Arena-Brawler aus der Vogelperspektive – mit Online-Multiplayer, 8 Braw
 - **Freunde:** 👥 Freunde → Benutzernamen eingeben → Anfrage. Angenommene Freunde sieht man mit Online-Status
   (online / in der Lobby / spielt gerade) und kann sie mit **Einladen** direkt in einen privaten Raum holen.
   Im privaten Raum spielen Freunde standardmäßig **im selben Team** (umschaltbar auf „Gegeneinander“).
-- **Admin:** Das Konto **Dinnerboneagg** (`ADMIN_NAMES` in `wrangler.toml`) sieht im Menü 🛡️ Admin. Nach Eingabe des
-  Admin-Codes: Statistik, Nachricht an alle, Spieler suchen, Münzen/Juwelen/Kisten/Trophäen geben, alle Brawler freischalten,
-  Max-Stufe, Spieler sperren (sofortiger Rauswurf) und entsperren. Der Code steht **nicht** im Code, sondern im
-  Repository-Secret `ADMIN_CODE` und wird beim Veröffentlichen als Cloudflare-Secret gesetzt. Lokal: `ADMIN_CODE=… npm start`.
+- **Admin:** Das Konto **Dinnerboneagg** (`ADMIN_NAMES` in `wrangler.toml`) sieht im Menü 🛡️ Admin (Code aus dem Secret `ADMIN_CODE`, lokal: `ADMIN_CODE=… npm start`).
+  - 📊 Übersicht: Statistik, laufende Räume (Match beenden / Sieger bestimmen), wer gerade online ist
+  - 👤 Spieler: Suche, Münzen/Juwelen/Kisten geben oder abziehen, Trophäen und Stufe pro Brawler, alle Brawler/Skins/Max-Stufe,
+    umbenennen, Passwort zurücksetzen, aus dem Match werfen, sperren, Fortschritt zurücksetzen, Konto löschen
+  - 🌍 Server: Nachricht an alle, Event „Doppelte Belohnungen“, Nachricht des Tages, Geschenk an alle, Wartungsmodus
+  - 📜 Protokoll aller Admin-Aktionen
+  - 🛡️ im Match: unverwundbar, unendlich Munition, Super immer bereit, doppeltes Tempo, heilen, alle Gegner besiegen, sofort gewinnen
 
 Wird bei jedem Push auf `main` von GitHub Actions (`.github/workflows/cloudflare.yml`) veröffentlicht:
 Worker (Spielseite + API), Durable Object (Multiplayer-Server für alle Räume) und D1-Datenbank (`kistenkrawall-db`).

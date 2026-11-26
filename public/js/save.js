@@ -7,6 +7,7 @@ const TOKEN_KEY = 'kistenkrawall_token';
 
 export const save = P.freshProfile();
 export const account = { mode: 'local', registered: false, login: null, rank: null };
+export const news = { motd: '', event: null, maintenance: null };
 export const { ROAD, UPGRADE_COST } = P;
 
 const ls = {
@@ -49,6 +50,7 @@ function applyServer(data) {
   if (data.token) ls.set(TOKEN_KEY, data.token);
   if (data.profile) setProfile(data.profile);
   if (data.account) Object.assign(account, data.account, { mode: 'server' });
+  if (data.news) Object.assign(news, data.news);
 }
 
 // Beim Start: angemeldetes Konto laden.

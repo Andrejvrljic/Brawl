@@ -14,6 +14,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS friends (
     a INTEGER NOT NULL, b INTEGER NOT NULL, requester INTEGER NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (a, b))`,
   'CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b)',
+  'CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+  'CREATE TABLE IF NOT EXISTS admin_log (id INTEGER PRIMARY KEY AUTOINCREMENT, admin TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL, at INTEGER NOT NULL)',
   'CREATE TABLE IF NOT EXISTS bans (account_id INTEGER PRIMARY KEY, created INTEGER NOT NULL)',
   'CREATE INDEX IF NOT EXISTS idx_accounts_trophies ON accounts(trophies DESC)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)',
@@ -85,6 +87,35 @@ export class D1Store {
     const row = typeof login === 'string' ? await (await this.q('SELECT id, created FROM accounts WHERE login = ?', login.trim())).first() : null;
     if (!row) return null;
     return { ...(await this.account(row.id)), created: row.created, banned: await this.isBanned(row.id) };
+  }
+  async getSetting(key) { const r = await (await this.q('SELECT value FROM settings WHERE key = ?', key)).first(); return r ? r.value : null; }
+  async setSetting(key, value) {
+    if (value === null) await (await this.q('DELETE FROM settings WHERE key = ?', key)).run();
+    else await (await this.q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, String(value))).run();
+  }
+  async logAdmin(admin, action, detail) {
+    await (await this.q('INSERT INTO admin_log (admin, action, detail, at) VALUES (?, ?, ?, ?)', String(admin), String(action), String(detail).slice(0, 300), Date.now())).run();
+  }
+  async adminLog(n = 40) { return (await (await this.q('SELECT admin, action, detail, at FROM admin_log ORDER BY id DESC LIMIT ?', n)).all()).results; }
+  async searchAccounts(q, n = 12) {
+    return (await (await this.q("SELECT login, name, trophies FROM accounts WHERE login IS NOT NULL AND (login LIKE ? OR name LIKE ?) ORDER BY trophies DESC LIMIT ?", q + '%', '%' + q + '%', n)).all()).results;
+  }
+  async allAccountIds() { return (await (await this.q('SELECT id FROM accounts WHERE login IS NOT NULL')).all()).results.map((r) => r.id); }
+  async setPassword(id, password) {
+    if (typeof password !== 'string' || password.length < 6 || password.length > 100) return { error: 'Passwort: mindestens 6 Zeichen.' };
+    await (await this.q('UPDATE accounts SET pass = ?, updated = ? WHERE id = ?', await hashPassword(password), Date.now(), id)).run();
+    await (await this.q('DELETE FROM sessions WHERE account_id = ?', id)).run();
+    return { ok: true };
+  }
+  async deleteAccount(id) {
+    await this.ready();
+    await this.d1.batch([
+      this.d1.prepare('DELETE FROM sessions WHERE account_id = ?').bind(id),
+      this.d1.prepare('DELETE FROM matches WHERE account_id = ?').bind(id),
+      this.d1.prepare('DELETE FROM bans WHERE account_id = ?').bind(id),
+      this.d1.prepare('DELETE FROM friends WHERE a = ? OR b = ?').bind(id, id),
+      this.d1.prepare('DELETE FROM accounts WHERE id = ?').bind(id),
+    ]);
   }
   async isBanned(id) { return !!(await (await this.q('SELECT 1 AS b FROM bans WHERE account_id = ?', id)).first()); }
   async setBan(id, on) {

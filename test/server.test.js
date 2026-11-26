@@ -201,3 +201,72 @@ test('Admin: nur mit Admin-Konto und Code; geben, sperren, Nachricht an alle', {
   assert.equal((await api('POST', '/api/login', { login: P.login, password: 'geheim123' })).status, 200);
   a.close(); p.close();
 });
+
+test('Admin+: Übersicht, Suche, Event, Wartung, Nachricht des Tages, Geschenk an alle, Kräfte im Match, Protokoll', { skip: !!process.env.TEST_URL }, async () => {
+  const adm = await api('POST', '/api/login', { login: 'Dinnerboneagg', password: 'geheim123' });
+  assert.equal(adm.status, 200);
+  const P = await signup();
+  const a = await socket(), p = await socket();
+  a.send({ t: 'auth', token: adm.data.token }); p.send({ t: 'auth', token: P.token });
+  await a.wait((m) => m.t === 'friends'); await p.wait((m) => m.t === 'friends');
+  let req = 100;
+  const admin = async (m) => { const id = ++req; a.send({ t: 'admin', req: id, code: 'TestCode123', ...m }); return a.wait((x) => x.t === 'adminRes' && x.req === id); };
+
+  const ov = await admin({ action: 'overview' });
+  assert.ok(ov.online.some((o) => o.login === P.login));
+  const se = await admin({ action: 'search', q: P.login.slice(0, 8) });
+  assert.ok(se.list.some((x) => x.login === P.login));
+
+  for (const [m, check] of [
+    [{ action: 'rename', name: 'Neu' }, (r) => r.player.name === 'Neu'],
+    [{ action: 'level', brawler: 'funke', value: 5 }, (r) => r.player.levels.funke === 5],
+    [{ action: 'skinsAll' }, (r) => r.player.skins.funke.length === 3],
+  ]) assert.ok(check(await admin({ ...m, login: P.login })), JSON.stringify(m));
+
+  // Event: doppelte Belohnungen
+  await admin({ action: 'event', minutes: 30 });
+  const me = await api('GET', '/api/me', null, P.token);
+  assert.equal(me.data.news.event.boost, 2);
+  const result = { mode: 'teamko', winner: 0, mvp: 0, players: [{ id: 1, team: 0, brawler: 'funke', kills: 0, rank: 1 }] };
+  const off = await api('POST', '/api/action', { type: 'offline', result, you: 1 }, P.token);
+  assert.equal(off.data.result.troph, 16, 'doppelte Trophäen');
+  await admin({ action: 'event', minutes: 0 });
+
+  // Nachricht des Tages
+  await admin({ action: 'motd', text: 'Willkommen!' });
+  assert.equal((await api('GET', '/api/news')).data.motd, 'Willkommen!');
+
+  // Wartung: normale Spieler kommen nicht in Räume
+  await admin({ action: 'maintenance', on: true, text: 'Kurze Pause' });
+  const gp = await socket();
+  gp.send({ t: 'join', create: true, token: P.token });
+  assert.match((await gp.wait((m) => m.t === 'error')).msg, /Kurze Pause/);
+  await admin({ action: 'maintenance', on: false });
+
+  // Geschenk an alle
+  const before = (await api('GET', '/api/me', null, P.token)).data.profile.gems;
+  await admin({ action: 'giveAll', gems: 7 });
+  assert.equal((await api('GET', '/api/me', null, P.token)).data.profile.gems, before + 7);
+
+  // Kräfte im Match
+  const ga = await socket();
+  ga.send({ t: 'join', mode: 'teamko', create: true, token: adm.data.token });
+  await ga.wait((m) => m.t === 'lobby');
+  ga.send({ t: 'startnow' });
+  await ga.wait((m) => m.t === 'start');
+  assert.ok((await admin({ action: 'match', power: 'god' })).powers.god);
+  assert.ok((await admin({ action: 'match', power: 'speed' })).powers.speed);
+  await new Promise((r) => setTimeout(r, 3200)); // Countdown
+  assert.match((await admin({ action: 'match', power: 'nuke' })).ok, /Gegner besiegt/);
+  await admin({ action: 'match', power: 'win' });
+  const end = await ga.wait((m) => m.t === 'end');
+  assert.ok(end.reward && end.reward.outcome === 'win');
+
+  // Passwort zurücksetzen, Konto löschen, Protokoll
+  await admin({ action: 'password', login: P.login, password: 'neuesPW1' });
+  assert.equal((await api('POST', '/api/login', { login: P.login, password: 'neuesPW1' })).status, 200);
+  assert.ok((await admin({ action: 'delete', login: P.login })).deleted);
+  assert.equal((await api('POST', '/api/login', { login: P.login, password: 'neuesPW1' })).status, 401);
+  const lg = await admin({ action: 'log' });
+  assert.ok(lg.log.length >= 8);
+});

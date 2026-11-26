@@ -60,6 +60,7 @@
       <button class="navbtn" data-go="ranking"><span class="big">📊</span>Rangliste</button>
       <button class="navbtn hidden" id="navAdmin" data-go="admin"><span class="big">🛡️</span>Admin</button>
     </nav>
+    <div class="newsbar" id="newsBar"></div>
     <div class="homeinfo">
       <div class="selname" id="selName">Funke</div>
       <div class="selmeta" id="selMeta">Allrounder · Stufe 1 · 🏆 0</div>
@@ -129,14 +130,61 @@
         <button class="btn gold" type="submit">Entsperren</button>
       </form>
       <div id="adminPanel" class="hidden">
-        <div class="adminstats" id="adminStats"></div>
-        <div class="fsec"><h3>📢 Nachricht an alle Spieler</h3>
-          <form id="annForm" class="addfriend"><input id="annIn" maxlength="200" placeholder="z. B. Turnier um 18 Uhr!"><button class="btn" type="submit">Senden</button></form>
+        <div class="authtabs admintabs">
+          <button class="tab on" data-atab="overview">📊 Übersicht</button>
+          <button class="tab" data-atab="players">👤 Spieler</button>
+          <button class="tab" data-atab="server">🌍 Server</button>
+          <button class="tab" data-atab="log">📜 Protokoll</button>
         </div>
-        <div class="fsec"><h3>🔎 Spieler verwalten</h3>
-          <form id="findForm" class="addfriend"><input id="findIn" maxlength="20" placeholder="Benutzername" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="btn" type="submit">Suchen</button></form>
+
+        <div class="apage" id="apage-overview">
+          <div class="adminstats" id="adminStats"></div>
+          <div class="fsec"><h3>🎮 Laufende Räume</h3><div id="adminRooms"></div></div>
+          <div class="fsec"><h3>🟢 Gerade online</h3><div id="adminOnline"></div></div>
+          <button class="chip" id="adminRefresh" style="margin-top:8px">↻ Aktualisieren</button>
         </div>
-        <div id="adminPlayer"></div>
+
+        <div class="apage hidden" id="apage-players">
+          <form id="findForm" class="addfriend"><input id="findIn" maxlength="20" placeholder="Name oder Benutzername" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="btn" type="submit">Suchen</button></form>
+          <div id="adminResults"></div>
+          <div id="adminPlayer"></div>
+        </div>
+
+        <div class="apage hidden" id="apage-server">
+          <div class="fsec"><h3>📢 Nachricht an alle Spieler</h3>
+            <form id="annForm" class="addfriend"><input id="annIn" maxlength="200" placeholder="z. B. Turnier um 18 Uhr!"><button class="btn" type="submit">Senden</button></form>
+          </div>
+          <div class="fsec"><h3>🎉 Event: Doppelte Belohnungen</h3>
+            <div class="ainfo" id="adminEventInfo"></div>
+            <div class="abtns">
+              <button class="btn gold" data-event="15">15 Min.</button>
+              <button class="btn gold" data-event="60">1 Stunde</button>
+              <button class="btn gold" data-event="180">3 Stunden</button>
+              <button class="btn gold" data-event="1440">1 Tag</button>
+              <button class="btn grey" data-event="0">Beenden</button>
+            </div>
+          </div>
+          <div class="fsec"><h3>📰 Nachricht des Tages (im Hauptmenü)</h3>
+            <form id="motdForm" class="addfriend"><input id="motdIn" maxlength="200" placeholder="leer lassen = keine Nachricht"><button class="btn" type="submit">Speichern</button></form>
+          </div>
+          <div class="fsec"><h3>🎁 Geschenk an alle Spieler</h3>
+            <div class="abtns">
+              <button class="btn" data-giveall='{"coins":100}'>+100 ●</button>
+              <button class="btn" data-giveall='{"coins":500}'>+500 ●</button>
+              <button class="btn" data-giveall='{"gems":25}'>+25 ◆</button>
+              <button class="btn" data-giveall='{"gems":100}'>+100 ◆</button>
+              <button class="btn" data-giveall='{"boxes":1}'>+1 🎁</button>
+              <button class="btn" data-giveall='{"boxes":3}'>+3 🎁</button>
+            </div>
+          </div>
+          <div class="fsec"><h3>🔧 Wartungsmodus</h3>
+            <div class="ainfo" id="adminMaintInfo"></div>
+            <form id="maintForm" class="addfriend"><input id="maintIn" maxlength="160" placeholder="Text, z. B. Update kommt – 10 Minuten"><button class="btn red" type="submit">Einschalten</button></form>
+            <button class="btn grey" id="maintOff" style="margin-top:6px">Ausschalten</button>
+          </div>
+        </div>
+
+        <div class="apage hidden" id="apage-log"><div id="adminLogList"></div></div>
       </div>
       <div class="formmsg" id="adminMsg"></div>
     </div>
@@ -173,6 +221,7 @@
   <!-- ========== HUD ========== -->
   <section id="hud" class="hidden">
     <button class="iconbtn leave" id="btnLeave" title="Verlassen">✕</button>
+    <button class="iconbtn admingame hidden" id="btnAdminGame" title="Admin-Kräfte">🛡️</button>
     <div class="scoreboard" id="scoreboard"></div>
     <div class="killfeed" id="killfeed"></div>
     <div class="countdown" id="countdown"></div>

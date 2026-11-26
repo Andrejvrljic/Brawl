@@ -126,7 +126,7 @@ export function openBox(p, rnd = Math.random) {
 }
 
 // Belohnung nach einem Match
-export function applyMatch(p, result, youId) {
+export function applyMatch(p, result, youId, boost = 1) {
   const me = result?.players?.find((x) => x.id === youId);
   if (!me || !BRAWLERS[me.brawler]) return null;
   const k = me.brawler;
@@ -142,6 +142,8 @@ export function applyMatch(p, result, youId) {
   else { outcome = 'loss'; troph = -4; coins = 10; meter = 15; }
   const mvp = result.mvp === youId;
   if (mvp) { coins += 10; troph += 1; }
+  // Event „Doppelte Belohnungen“
+  if (boost > 1) { coins *= boost; meter *= boost; if (troph > 0) troph *= boost; }
   const kills = int(me.kills, 0, 30, 0);
   coins += kills * 3;
   const before = p.trophies[k] || 0;
@@ -154,7 +156,7 @@ export function applyMatch(p, result, youId) {
   p.stats.games++;
   if (outcome === 'win') p.stats.wins++;
   p.stats.kos += kills;
-  return { outcome, troph: realTroph, coins, meter, newBoxes, mvp };
+  return { outcome, troph: realTroph, coins, meter, newBoxes, mvp, boost };
 }
 
 // Ausführen einer Aktion per Name (vom Server und vom Offline-Client benutzt)
