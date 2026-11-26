@@ -1,13 +1,17 @@
-// Kistenkrawall auf Cloudflare: Worker liefert das Spiel aus und beantwortet die API (D1-Datenbank),
+// Brawl Engine auf Cloudflare: Worker liefert das Spiel aus und beantwortet die API (D1-Datenbank),
 // ein Durable Object betreibt alle Spielräume in Echtzeit über WebSocket – wie bei ECLIPSE.
 import { handleApi } from '../server/api.js';
 import { Arena } from '../server/rooms.js';
 import { D1Store } from './d1.js';
+import { configureAdmin } from '../server/admin.js';
+
+const adminFromEnv = (env) => configureAdmin({ names: env.ADMIN_NAMES || 'Dinnerboneagg', code: env.ADMIN_CODE || '' });
 
 const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
 export class ArenaDO {
   constructor(state, env) {
+    adminFromEnv(env);
     this.arena = new Arena(new D1Store(env.DB));
   }
 
@@ -25,6 +29,7 @@ export class ArenaDO {
 
 export default {
   async fetch(request, env) {
+    adminFromEnv(env);
     const url = new URL(request.url);
     // Echtzeit-Verbindungen gehen an den gemeinsamen Spielraum
     if (request.headers.get('Upgrade') === 'websocket') {
@@ -43,6 +48,7 @@ export default {
           method: request.method, path: url.pathname, body,
           token: (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''),
           ip: request.headers.get('cf-connecting-ip') || '?',
+          stats: { version: env.VERSION || 'dev' },
         });
         return json(r.status, r.data);
       } catch (e) {

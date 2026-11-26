@@ -1,4 +1,4 @@
-// Kistenkrawall – Node-Server (lokal / Codespaces / Docker): Spiel ausliefern, API, WebSocket-Räume
+// Brawl Engine – Node-Server (lokal / Codespaces / Docker): Spiel ausliefern, API, WebSocket-Räume
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,12 +7,14 @@ import { WebSocketServer } from 'ws';
 import { Database } from './db.js';
 import { handleApi } from './api.js';
 import { Arena } from './rooms.js';
+import { configureAdmin } from './admin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, '..', 'public');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8' };
 
 export function startServer({ port = 3000, dbPath = path.join(__dirname, '..', 'data', 'kistenkrawall.db'), quiet = false } = {}) {
+  configureAdmin({ names: process.env.ADMIN_NAMES || 'Dinnerboneagg', code: process.env.ADMIN_CODE || '' });
   const db = new Database(dbPath);
   const arena = new Arena(db);
 

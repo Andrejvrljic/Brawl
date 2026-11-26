@@ -14,6 +14,7 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS friends (
     a INTEGER NOT NULL, b INTEGER NOT NULL, requester INTEGER NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (a, b))`,
   'CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b)',
+  'CREATE TABLE IF NOT EXISTS bans (account_id INTEGER PRIMARY KEY, created INTEGER NOT NULL)',
   'CREATE INDEX IF NOT EXISTS idx_accounts_trophies ON accounts(trophies DESC)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)',
   'CREATE INDEX IF NOT EXISTS idx_matches_account ON matches(account_id, played DESC)',
@@ -74,8 +75,21 @@ export class D1Store {
     const h = await sha(token);
     const s = await (await this.q('SELECT account_id FROM sessions WHERE token_hash = ?', h)).first();
     if (!s) return null;
+    if (await this.isBanned(s.account_id)) return null;
     await (await this.q('UPDATE sessions SET last_used = ? WHERE token_hash = ?', Date.now(), h)).run();
     return this.account(s.account_id);
+  }
+
+  // ---------- Admin ----------
+  async byLogin(login) {
+    const row = typeof login === 'string' ? await (await this.q('SELECT id, created FROM accounts WHERE login = ?', login.trim())).first() : null;
+    if (!row) return null;
+    return { ...(await this.account(row.id)), created: row.created, banned: await this.isBanned(row.id) };
+  }
+  async isBanned(id) { return !!(await (await this.q('SELECT 1 AS b FROM bans WHERE account_id = ?', id)).first()); }
+  async setBan(id, on) {
+    if (on) await (await this.q('INSERT OR IGNORE INTO bans (account_id, created) VALUES (?, ?)', id, Date.now())).run();
+    else await (await this.q('DELETE FROM bans WHERE account_id = ?', id)).run();
   }
 
   async account(id) {
@@ -155,6 +169,7 @@ export class D1Store {
     if (typeof login !== 'string' || typeof password !== 'string') return null;
     const row = await (await this.q('SELECT id, pass FROM accounts WHERE login = ?', login.trim())).first();
     if (!row || !(await verifyPassword(password, row.pass))) return null;
+    if (await this.isBanned(row.id)) return { banned: true };
     return { id: row.id, token: await this.newSession(row.id) };
   }
 

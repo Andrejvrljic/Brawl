@@ -3,6 +3,7 @@
 import { Game, MODES } from '../public/shared/game.js';
 import { applyMatch } from '../public/shared/progress.js';
 import { publicProfile, limited } from './api.js';
+import { isAdminName, adminEnabled, checkCode, summary, applyAdminEdit } from './admin.js';
 
 const TICK = 1 / 30;
 const QUEUE_WAIT = 12; // Sekunden bis Bots auffüllen
@@ -12,6 +13,8 @@ export class Arena {
     this.db = db;
     this.rooms = new Map();
     this.online = new Map(); // Konto-ID -> Set von Menü-Verbindungen (für Freunde)
+    this.conns = new Set();  // alle Verbindungen (für Admin-Nachrichten)
+    this.adminFails = new Map();
     this.seq = 1;
     this.lobbyTimer = setInterval(() => this.lobbyTick(), 1000);
   }
@@ -19,6 +22,7 @@ export class Arena {
   // Neue Verbindung: sendFn(text) schickt eine Nachricht an den Client
   connect(sendFn) {
     const c = { sendFn, room: null, pid: 0, accId: null, info: null, presence: false, chain: Promise.resolve() };
+    this.conns.add(c);
     this.send(c, { t: 'hello' });
     return c;
   }
@@ -37,6 +41,7 @@ export class Arena {
 
   close(c) {
     c.closed = true;
+    this.conns.delete(c);
     c.chain = c.chain.then(async () => {
       if (c.room) c.room.remove(c);
       if (c.presence && c.accId) {
@@ -75,7 +80,7 @@ export class Arena {
       case 'auth': {
         const acc = await this.db.byToken(m.token);
         if (!acc || !acc.registered || c.closed) { this.send(c, { t: 'authfail' }); return; }
-        c.accId = acc.id; c.name = acc.profile.name; c.presence = true;
+        c.accId = acc.id; c.name = acc.profile.name; c.login = acc.login; c.presence = true;
         const first = !this.online.has(acc.id);
         if (first) this.online.set(acc.id, new Set());
         this.online.get(acc.id).add(c);
@@ -123,6 +128,13 @@ export class Arena {
         break;
       }
 
+      // ----- Admin -----
+      case 'admin': {
+        const res = await this.admin(c, m);
+        this.send(c, { t: 'adminRes', req: m.req, ...res });
+        break;
+      }
+
       // ----- Spielen -----
       case 'join': {
         if (r) r.remove(c);
@@ -155,6 +167,47 @@ export class Arena {
       case 'act': if (r && r.game && c.pid) r.game.queueAction(c.pid, m.k === 'sup' ? 'sup' : 'atk', +m.ax, +m.ay, +m.d, +m.x, +m.y); break;
       case 'ping': this.send(c, { t: 'pong', id: m.id }); break;
     }
+  }
+
+  async admin(c, m) {
+    if (!c.presence || !isAdminName(c.login)) return { error: 'Kein Admin-Konto.' };
+    if (!adminEnabled()) return { error: 'Auf dem Server ist noch kein Admin-Code eingerichtet.' };
+    const f = this.adminFails.get(c.accId) || { n: 0, t: 0 };
+    if (f.n >= 5 && Date.now() - f.t < 10 * 60000) return { error: 'Zu viele falsche Versuche – warte 10 Minuten.' };
+    if (!checkCode(m.code)) { this.adminFails.set(c.accId, { n: f.n + 1, t: Date.now() }); return { error: 'Falscher Admin-Code.', badCode: true }; }
+    this.adminFails.delete(c.accId);
+    const db = this.db;
+    switch (m.action) {
+      case 'check': {
+        let playing = 0;
+        for (const r of this.rooms.values()) if (r.state === 'play') playing += r.clients.size;
+        return { ok: true, stats: { accounts: await db.accountCount(), online: this.online.size, rooms: this.rooms.size, playing } };
+      }
+      case 'announce': {
+        const text = String(m.text || '').replace(/[<>]/g, '').trim().slice(0, 200);
+        if (!text) return { error: 'Nachricht ist leer.' };
+        for (const x of this.conns) this.send(x, { t: 'announce', text, from: c.name });
+        return { ok: 'Nachricht an alle gesendet.' };
+      }
+    }
+    const acc = await db.byLogin(String(m.login || ''));
+    if (!acc) return { error: 'Spieler nicht gefunden.' };
+    if (m.action === 'find') return { ok: true, player: summary(acc) };
+    if (m.action === 'ban') {
+      if (isAdminName(acc.login)) return { error: 'Admins kann man nicht sperren.' };
+      await db.setBan(acc.id, !!m.on);
+      acc.banned = !!m.on;
+      if (m.on) {
+        // sofort rauswerfen
+        for (const x of [...this.conns]) if (x.accId === acc.id) { this.send(x, { t: 'kicked', msg: 'Dein Konto wurde gesperrt.' }); if (x.room) x.room.remove(x); }
+      }
+      return { ok: m.on ? 'Spieler gesperrt.' : 'Sperre aufgehoben.', player: summary(acc) };
+    }
+    const err = applyAdminEdit(acc.profile, m);
+    if (err) return { error: err };
+    await db.save(acc);
+    this.sendTo(acc.id, { t: 'profileUpdate' });
+    return { ok: 'Gespeichert.', player: summary(acc) };
   }
 
   lobbyTick() {

@@ -1,10 +1,11 @@
-# Veröffentlicht Kistenkrawall auf Cloudflare – wie ECLIPSE:
+# Veröffentlicht Brawl Engine auf Cloudflare – wie ECLIPSE:
 #   Worker (Spielseite + API), Durable Object (Multiplayer-Server), D1 (Datenbank)
-# Adresse: https://kistenkrawall.<deine-subdomain>.workers.dev
+# Adresse: https://brawl-engine.<deine-subdomain>.workers.dev
 #
 # Einmalig nötig (Settings → Secrets and variables → Actions → New repository secret):
 #   CLOUDFLARE_API_TOKEN   – derselbe Token wie bei ECLIPSE (Rechte: Workers Scripts Edit, D1 Edit)
 #   CLOUDFLARE_ACCOUNT_ID  – optional, wird sonst automatisch ermittelt
+#   ADMIN_CODE             – geheimer Admin-Code für die Admin-Konten (ADMIN_NAMES in wrangler.toml)
 name: Cloudflare (Multiplayer + Datenbank)
 
 on:
@@ -79,14 +80,29 @@ jobs:
 
       - name: Spiel veröffentlichen
         run: |
-          npx wrangler deploy
-          echo "::notice title=Kistenkrawall::https://kistenkrawall.$SUBDOMAIN.workers.dev"
-          echo "### 🥊 Online: https://kistenkrawall.$SUBDOMAIN.workers.dev" >> "$GITHUB_STEP_SUMMARY"
+          npx wrangler deploy --var "VERSION:$GITHUB_SHA"
+          echo "::notice title=Brawl Engine::https://brawl-engine.$SUBDOMAIN.workers.dev"
+          echo "### 🥊 Online: https://brawl-engine.$SUBDOMAIN.workers.dev" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Admin-Code setzen (aus dem Repository-Secret ADMIN_CODE)
+        env:
+          ADMIN_CODE: ${{ secrets.ADMIN_CODE }}
+        run: |
+          if [ -z "$ADMIN_CODE" ]; then
+            echo "::warning::Das Repository-Secret ADMIN_CODE fehlt – der Admin-Bereich bleibt gesperrt."
+            exit 0
+          fi
+          printf '%s' "$ADMIN_CODE" | npx wrangler secret put ADMIN_CODE
+          echo "Admin-Code gesetzt (Admins: siehe ADMIN_NAMES in wrangler.toml)."
 
       - name: Live-Test (Konten, Datenbank, Multiplayer-Raum)
         run: |
-          URL="https://kistenkrawall.$SUBDOMAIN.workers.dev"
-          for i in $(seq 1 20); do curl -fs "$URL/health" >/dev/null && break; sleep 3; done
+          URL="https://brawl-engine.$SUBDOMAIN.workers.dev"
+          # warten, bis Cloudflare wirklich die neue Version ausliefert
+          for i in $(seq 1 60); do
+            if curl -fs "$URL/api/health" | grep -q "\"version\":\"$GITHUB_SHA\""; then echo "Neue Version ist live."; break; fi
+            sleep 3
+          done
           TEST_URL="$URL" node --disable-warning=ExperimentalWarning --test test/server.test.js
 
       - name: Testkonten wieder löschen

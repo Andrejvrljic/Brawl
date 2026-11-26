@@ -1,4 +1,4 @@
-# Kistenkrawall: Spiel + Multiplayer-Server + SQLite-Datenbank
+# Brawl Engine: Spiel + Multiplayer-Server + SQLite-Datenbank
 FROM node:22-alpine
 WORKDIR /app
 ENV NODE_ENV=production PORT=3000 DB_PATH=/app/data/kistenkrawall.db
