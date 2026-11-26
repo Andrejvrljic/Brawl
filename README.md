@@ -2,7 +2,13 @@
 
 Ein 3D-Arena-Brawler aus der Vogelperspektive – mit Online-Multiplayer, 8 Brawlern mit eigenen Angriffen und Belohnungen zum Freischalten. Läuft im Browser auf PC, Handy und Tablet.
 
-## Starten
+## Spielen ohne Installation
+
+- **Gegen Bots (fester Link):** https://andrejvrljic.github.io/Brawl/ – läuft über GitHub Pages, ohne Multiplayer und Datenbank.
+- **Mit Freunden online (GitHub Codespaces):** [![In Codespaces öffnen](https://github.com/codespaces/badge.svg)](https://codespaces.new/Andrejvrljic/Brawl?quickstart=1)
+  Der Server mit Datenbank startet automatisch. Im Reiter **Ports** den Link bei „Kistenkrawall“ (Port 3000) kopieren und an Freunde schicken. Steht dort „Private“: Rechtsklick bzw. lange tippen → *Port Visibility* → *Public*. Der Codespace schläft nach ca. 30 Minuten ohne Benutzung ein; zum Weiterspielen unter github.com/codespaces wieder starten – die Datenbank bleibt erhalten.
+
+## Starten auf dem eigenen Rechner
 
 ```bash
 npm install
