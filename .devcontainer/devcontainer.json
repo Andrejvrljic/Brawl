@@ -1,11 +1,11 @@
 {
-  "name": "Kistenkrawall-Server",
+  "name": "Brawl-Engine-Server",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
   "postCreateCommand": "npm install",
   "postStartCommand": "bash .devcontainer/start.sh",
   "forwardPorts": [3000],
   "portsAttributes": {
-    "3000": { "label": "Kistenkrawall", "onAutoForward": "openBrowser" }
+    "3000": { "label": "Brawl Engine", "onAutoForward": "openBrowser" }
   },
   "hostRequirements": { "cpus": 2 }
 }

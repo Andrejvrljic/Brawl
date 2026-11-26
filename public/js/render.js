@@ -340,12 +340,13 @@ export class Renderer {
     if (this.mode === 'menu') {
       if (this.menuModel) {
         this.menuModel.rotation.y += dt * 0.6;
-        const b = this.menuModel.userData.parts.body;
-        b.position.y = Math.abs(Math.sin(this.clock * 2)) * 0.06;
+        const parts = this.menuModel.userData.parts;
+        parts.body.position.y = Math.abs(Math.sin(this.clock * 2)) * 0.04;
+        animateRig(parts, 0, false, this.clock, dt, 0);
       }
       for (const d of this.menuDeco) { d.rotation.x += dt * d.userData.spin; d.rotation.y += dt * d.userData.spin * 0.7; }
-      this.camera.position.set(0, 1.9, 4.6);
-      this.camera.lookAt(0, 1.05, 0);
+      this.camera.position.set(0, 1.8, 4.4);
+      this.camera.lookAt(0, 1.0, 0);
       this.camera.fov = 45; this.camera.updateProjectionMatrix();
       this.gl.render(this.menuScene, this.camera);
       return;
@@ -419,20 +420,10 @@ export class Renderer {
     let diff = Math.atan2(Math.sin(want - cur), Math.cos(want - cur));
     e.model.rotation.y = cur + diff * Math.min(1, dt * 16);
     const parts = e.model.userData.parts;
-    if (moving && !(p.st & 2)) {
-      e.phase += dt * 13;
-      parts.body.position.y = Math.abs(Math.sin(e.phase)) * 0.07;
-      parts.feet[0].position.z = 0.02 + Math.sin(e.phase) * 0.1;
-      parts.feet[1].position.z = 0.02 - Math.sin(e.phase) * 0.1;
-    } else {
-      parts.body.position.y *= 0.8;
-      parts.feet[0].position.z = parts.feet[1].position.z = 0.02;
-      parts.body.scale.y = 1 + Math.sin(this.clock * 3 + e.info.id) * 0.015;
-    }
-    if (parts.halo) parts.halo.rotation.z += dt * 2;
+    const walking = moving && !(p.st & 2);
+    if (walking) e.phase += dt * 12;
     e.recoil = Math.max(0, e.recoil - dt * 6);
-    parts.body.position.z = -e.recoil * 0.12;
-    parts.body.scale.x = parts.body.scale.z = 1 + e.recoil * 0.08;
+    animateRig(parts, e.phase, walking, this.clock + e.info.id, dt, e.recoil);
     // Status
     e.ice.visible = !!(p.st & 2);
     e.fire.visible = !!(p.st & 4);
@@ -449,6 +440,7 @@ export class Renderer {
     for (const m of e.mats) {
       if (m.transparent !== wantT) { m.transparent = wantT; m.needsUpdate = true; }
       m.opacity = op;
+      if (!m.emissive) continue; // Umriss-Material
       if (!m.userData.baseE) m.userData.baseE = { c: m.emissive.clone(), i: m.emissiveIntensity };
       if (e.flash > 0) { m.emissive.setRGB(1, 1, 1); m.emissiveIntensity = e.flash * 0.9; }
       else { m.emissive.copy(m.userData.baseE.c); m.emissiveIntensity = m.userData.baseE.i; }
@@ -707,6 +699,32 @@ export class Renderer {
     this.overlay.innerHTML = '';
     this.ents = new Map();
   }
+}
+
+// Lauf-, Atem- und Rückstoß-Animation der Figuren
+function animateRig(parts, phase, walking, clock, dt, recoil) {
+  const k = Math.min(1, dt * 14);
+  const sw = Math.sin(phase);
+  const body = parts.body;
+  if (walking) {
+    body.position.y = Math.abs(Math.cos(phase)) * 0.06;
+    body.rotation.x += (0.12 - body.rotation.x) * k;
+  } else {
+    body.position.y += (0 - body.position.y) * k;
+    body.rotation.x += (0 - body.rotation.x) * k;
+    if (parts.torso) parts.torso.scale.y = parts.s.torsoH * (1 + Math.sin(clock * 3) * 0.04);
+  }
+  if (parts.legs) parts.legs.forEach((l, i) => { const t = walking ? (i ? -sw : sw) * 0.75 : 0; l.rotation.x += (t - l.rotation.x) * k; });
+  if (parts.arms) parts.arms.forEach((a, i) => {
+    const base = a.userData.base || 0;
+    let t = base;
+    if (a.userData.swing) t = walking ? (i ? sw : -sw) * 0.65 : Math.sin(clock * 2 + i) * 0.05;
+    else if (walking) t = base + sw * 0.08;
+    if (a === parts.armR) t -= recoil * 0.45;
+    a.rotation.x += (t - a.rotation.x) * Math.min(1, dt * 20);
+  });
+  body.position.z = -recoil * 0.08;
+  if (parts.anim) for (const f of parts.anim) f(clock, dt, walking);
 }
 
 export function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }

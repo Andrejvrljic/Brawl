@@ -11,7 +11,7 @@ if [ -n "$CODESPACE_NAME" ]; then
   done
   gh codespace ports visibility 3000:public -c "$CODESPACE_NAME" >/dev/null 2>&1 || true
   echo ""
-  echo "  Kistenkrawall läuft! Link für deine Freunde:"
+  echo "  Brawl Engine läuft! Link für deine Freunde:"
   echo "  https://${CODESPACE_NAME}-3000.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-app.github.dev}"
   echo ""
 fi

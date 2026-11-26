@@ -1,4 +1,4 @@
-// Kistenkrawall auf Cloudflare: Worker liefert das Spiel aus und beantwortet die API (D1-Datenbank),
+// Brawl Engine auf Cloudflare: Worker liefert das Spiel aus und beantwortet die API (D1-Datenbank),
 // ein Durable Object betreibt alle Spielräume in Echtzeit über WebSocket – wie bei ECLIPSE.
 import { handleApi } from '../server/api.js';
 import { Arena } from '../server/rooms.js';
@@ -48,6 +48,7 @@ export default {
           method: request.method, path: url.pathname, body,
           token: (request.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''),
           ip: request.headers.get('cf-connecting-ip') || '?',
+          stats: { version: env.VERSION || 'dev' },
         });
         return json(r.status, r.data);
       } catch (e) {

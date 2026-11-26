@@ -1,4 +1,4 @@
-// Kistenkrawall – Hauptprogramm: Menüs, Belohnungen, Spielschleife
+// Brawl Engine – Hauptprogramm: Menüs, Belohnungen, Spielschleife
 import * as THREE from 'three';
 import { Renderer, escapeHtml } from './render.js';
 import { buildBrawler } from './models.js';
@@ -34,8 +34,8 @@ function makePortraits() {
       m.rotation.y = 0.45;
       scene.add(m);
       const big = k === 'brocken';
-      cam.position.set(0, big ? 1.2 : 1.05, big ? 3.6 : 3.1);
-      cam.lookAt(0, big ? 0.85 : 0.72, 0);
+      cam.position.set(0, big ? 1.15 : 1.0, big ? 3.9 : 3.4);
+      cam.lookAt(0, big ? 0.78 : 0.68, 0);
       r.render(scene, cam);
       portraits[k + s] = c.toDataURL();
       scene.remove(m);

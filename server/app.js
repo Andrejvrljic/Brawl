@@ -1,4 +1,4 @@
-// Kistenkrawall – Node-Server (lokal / Codespaces / Docker): Spiel ausliefern, API, WebSocket-Räume
+// Brawl Engine – Node-Server (lokal / Codespaces / Docker): Spiel ausliefern, API, WebSocket-Räume
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';

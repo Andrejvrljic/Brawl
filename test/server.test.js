@@ -16,7 +16,11 @@ before(async () => {
   }
   wsBase = base.replace(/^http/, 'ws');
 });
-after(async () => { if (app) await app.close(); });
+const sockets = [];
+after(async () => {
+  for (const ws of sockets) { try { ws.terminate(); } catch { /* egal */ } }
+  if (app) await app.close();
+});
 
 const rnd = () => Math.random().toString(36).slice(2, 9);
 const newLogin = () => 'kktest' + rnd();
@@ -35,6 +39,7 @@ async function signup() {
 // Kleine WebSocket-Hilfe: wartet auf bestimmte Nachrichten
 async function socket() {
   const ws = new WebSocket(wsBase);
+  sockets.push(ws);
   const msgs = [];
   const waiters = [];
   ws.on('message', (raw) => {
@@ -60,7 +65,7 @@ async function socket() {
 test('Spiel wird ausgeliefert', async () => {
   const res = await fetch(base + '/');
   assert.equal(res.status, 200);
-  assert.match(await res.text(), /Kistenkrawall/);
+  assert.match(await res.text(), /Brawl Engine/);
 });
 
 test('Ohne Konto kein Spiel: keine Gastkonten, keine Aktionen, kein Online-Raum', async () => {

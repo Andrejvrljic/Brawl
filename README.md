@@ -1,10 +1,10 @@
-# 🥊 Kistenkrawall
+# 🥊 Brawl Engine
 
 Ein 3D-Arena-Brawler aus der Vogelperspektive – mit Online-Multiplayer, 8 Brawlern mit eigenen Angriffen und Belohnungen zum Freischalten. Läuft im Browser auf PC, Handy und Tablet.
 
 ## Online spielen (Cloudflare, wie ECLIPSE)
 
-**https://kistenkrawall.dinnerboneagg.workers.dev** – Multiplayer, Konten, Freunde, Datenbank und Rangliste, dauerhaft online.
+**https://brawl-engine.dinnerboneagg.workers.dev** – Multiplayer, Konten, Freunde, Datenbank und Rangliste, dauerhaft online.
 
 - **Konto nötig:** Beim ersten Öffnen erstellt man ein Konto (Benutzername + Passwort) oder meldet sich an.
 - **Freunde:** 👥 Freunde → Benutzernamen eingeben → Anfrage. Angenommene Freunde sieht man mit Online-Status
@@ -24,7 +24,7 @@ Nach jedem Deploy prüft ein Live-Test Konten, Datenbank und einen Multiplayer-R
 
 - **Gegen Bots (fester Link):** https://andrejvrljic.github.io/Brawl/ – läuft über GitHub Pages, ohne Multiplayer und Datenbank.
 - **Mit Freunden online (GitHub Codespaces):** [![In Codespaces öffnen](https://github.com/codespaces/badge.svg)](https://codespaces.new/Andrejvrljic/Brawl?quickstart=1)
-  Der Server mit Datenbank startet automatisch. Im Reiter **Ports** den Link bei „Kistenkrawall“ (Port 3000) kopieren und an Freunde schicken. Steht dort „Private“: Rechtsklick bzw. lange tippen → *Port Visibility* → *Public*. Der Codespace schläft nach ca. 30 Minuten ohne Benutzung ein; zum Weiterspielen unter github.com/codespaces wieder starten – die Datenbank bleibt erhalten.
+  Der Server mit Datenbank startet automatisch. Im Reiter **Ports** den Link bei „Brawl Engine“ (Port 3000) kopieren und an Freunde schicken. Steht dort „Private“: Rechtsklick bzw. lange tippen → *Port Visibility* → *Public*. Der Codespace schläft nach ca. 30 Minuten ohne Benutzung ein; zum Weiterspielen unter github.com/codespaces wieder starten – die Datenbank bleibt erhalten.
 
 ## Starten auf dem eigenen Rechner
 
