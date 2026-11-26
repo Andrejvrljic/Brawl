@@ -7,13 +7,12 @@ import { LocalSession, NetSession, serverUrl } from './session.js';
 import { sfx, setSound, unlockAudio } from './audio.js';
 import { BRAWLERS, BRAWLER_ORDER, MAX_LEVEL, SKIN_NAMES, SKIN_COST, levelMult } from '../shared/brawlers.js';
 import { MODES } from '../shared/game.js';
-import { save, persist, totalTrophies, isUnlocked, upgrade, buySkin, ROAD, claimRoad, openBox, applyMatch, roadAvailable, UPGRADE_COST } from './save.js';
+import { save, account, initSave, act, reportMatch, register, login, logout, leaderboard, token, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
 const renderer = new Renderer(canvas, $('overlay'));
 const input = new Input(document.body);
-setSound(save.sound);
 
 const state = { screen: 'home', mode: 'teamko', online: !!serverUrl(), session: null, lastView: null, selDetail: save.selected };
 
@@ -49,14 +48,15 @@ const portrait = (k, s = save.skinSel[k] || 0) => portraits[k + s];
 
 // ---------- Allgemeines UI ----------
 function show(id) {
-  for (const s of ['home', 'brawlers', 'road', 'boxes', 'lobby', 'results']) $(s).classList.toggle('hidden', s !== id);
+  for (const s of ['home', 'brawlers', 'road', 'boxes', 'ranking', 'lobby', 'results']) $(s).classList.toggle('hidden', s !== id);
   $('hud').classList.toggle('hidden', id !== 'game');
   state.screen = id;
   if (id === 'home') refreshHome();
   if (id === 'brawlers') renderBrawlers();
   if (id === 'road') renderRoad();
   if (id === 'boxes') renderBoxes();
-  if (['home', 'brawlers', 'road', 'boxes'].includes(id) && renderer.mode !== 'menu') renderer.showMenu(save.selected, save.skinSel[save.selected]);
+  if (id === 'ranking') renderRanking();
+  if (['home', 'brawlers', 'road', 'boxes', 'ranking'].includes(id) && renderer.mode !== 'menu') renderer.showMenu(save.selected, save.skinSel[save.selected]);
 }
 
 let toastT = 0;
@@ -78,6 +78,7 @@ document.addEventListener('click', (e) => {
 function refreshHome() {
   const k = save.selected, def = BRAWLERS[k];
   $('playerName').textContent = save.name;
+  $('accIco').textContent = account.mode === 'server' ? (account.registered ? '☁️' : '👤') : '💾';
   $('resTroph').textContent = totalTrophies();
   $('resCoins').textContent = save.coins;
   $('resGems').textContent = save.gems;
@@ -95,14 +96,59 @@ function refreshHome() {
   if (renderer.menuKey !== k + save.skinSel[k]) renderer.showMenu(k, save.skinSel[k]);
 }
 
-$('btnSound').onclick = () => { save.sound = !save.sound; setSound(save.sound); persist(); refreshHome(); };
-$('btnName').onclick = () => {
-  modal(`<h2>Dein Name</h2><input id="nameIn" maxlength="14" value="${escapeHtml(save.name)}"><div class="row"><button class="btn" id="nameOk">Speichern</button></div>`);
-  const i = $('nameIn'); i.focus(); i.select();
-  const ok = () => { const v = i.value.replace(/[<>]/g, '').trim().slice(0, 14); if (v) save.name = v; persist(); closeModal(); refreshHome(); };
-  $('nameOk').onclick = ok;
-  i.onkeydown = (e) => { if (e.key === 'Enter') ok(); };
-};
+$('btnSound').onclick = async () => { await act({ type: 'sound', on: !save.sound }); setSound(save.sound); refreshHome(); };
+$('btnName').onclick = () => accountModal();
+
+// ---------- Konto (Datenbank) ----------
+function accountModal(msg = '') {
+  const srv = account.mode === 'server';
+  let status;
+  if (!srv) status = '💾 Kein Server verbunden – dein Fortschritt wird nur in diesem Browser gespeichert.';
+  else if (account.registered) status = `☁️ Angemeldet als <b>${escapeHtml(account.login)}</b> – dein Fortschritt ist in der Datenbank gesichert. Platz <b>${account.rank}</b> in der Rangliste.`;
+  else status = '👤 Gastkonto – dein Fortschritt ist in der Datenbank, aber nur dieses Gerät kennt den Schlüssel. Sichere dein Konto, um auf anderen Geräten weiterzuspielen.';
+  modal(`<h2>Konto</h2>
+    <p class="hint" style="text-align:left;max-width:none">${status}</p>
+    <label class="flabel">Name im Spiel</label>
+    <div class="row"><input id="nameIn" maxlength="14" value="${escapeHtml(save.name)}"><button class="btn" id="nameOk" style="flex:0 0 auto;margin-bottom:12px">Speichern</button></div>
+    ${srv && !account.registered ? `
+      <h2 style="margin-top:6px">Konto sichern</h2>
+      <input id="regUser" placeholder="Benutzername" autocomplete="username" maxlength="20">
+      <input id="regPass" type="password" placeholder="Passwort (mind. 6 Zeichen)" autocomplete="new-password">
+      <div class="row"><button class="btn gold" id="regOk">Sichern</button></div>
+      <h2 style="margin-top:14px">Schon ein Konto?</h2>
+      <input id="logUser" placeholder="Benutzername" autocomplete="username" maxlength="20">
+      <input id="logPass" type="password" placeholder="Passwort" autocomplete="current-password">
+      <div class="row"><button class="btn" id="logOk">Anmelden</button></div>` : ''}
+    ${srv && account.registered ? '<div class="row"><button class="btn gold" id="logoutOk">Abmelden</button></div>' : ''}
+    <div class="formmsg" id="accMsg">${msg}</div>`);
+  const setMsg = (m) => { $('accMsg').textContent = m; };
+  $('nameOk').onclick = async () => {
+    const r = await act({ type: 'rename', name: $('nameIn').value });
+    if (!r || r.error) setMsg(r?.error || 'Ungültiger Name.'); else { setMsg('Name gespeichert ✔'); refreshHome(); }
+  };
+  if ($('regOk')) $('regOk').onclick = async () => {
+    const err = await register($('regUser').value.trim(), $('regPass').value);
+    if (err) setMsg(err); else { sfx('reward'); refreshHome(); accountModal('Konto gesichert ✔ Melde dich auf anderen Geräten mit diesem Namen an.'); }
+  };
+  if ($('logOk')) $('logOk').onclick = async () => {
+    const err = await login($('logUser').value.trim(), $('logPass').value);
+    if (err) setMsg(err); else { sfx('reward'); setSound(save.sound); closeModal(); refreshHome(); toast(`Willkommen zurück, <b>${escapeHtml(save.name)}</b>!`); }
+  };
+  if ($('logoutOk')) $('logoutOk').onclick = async () => { await logout(); closeModal(); refreshHome(); toast('Abgemeldet.'); };
+}
+
+// ---------- Rangliste ----------
+async function renderRanking() {
+  const el = $('rankList');
+  if (account.mode !== 'server') { el.innerHTML = '<p class="hint">Die Rangliste braucht den Server mit Datenbank.</p>'; return; }
+  el.innerHTML = '<p class="hint">Lade…</p>';
+  try {
+    const top = await leaderboard();
+    if (!top.length) { el.innerHTML = '<p class="hint">Noch niemand in der Rangliste – spiel ein Match!</p>'; return; }
+    el.innerHTML = `<table class="restable"><tr><th>#</th><th>Spieler</th><th>🏆</th></tr>${top.map((p, i) =>
+      `<tr class="${p.name === save.name && p.trophies === totalTrophies() ? 'me' : ''}"><td>${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</td><td>${escapeHtml(p.name)}</td><td>${p.trophies}</td></tr>`).join('')}</table>`;
+  } catch { el.innerHTML = '<p class="hint">Rangliste konnte nicht geladen werden.</p>'; }
+}
 $('netOnline').onclick = () => {
   if (!serverUrl()) { toast('Online braucht den Server: im Projektordner <b>npm start</b> ausführen und die angezeigte Adresse öffnen.', 4000); return; }
   state.online = true; refreshHome();
@@ -162,15 +208,20 @@ function renderDetail() {
         : `<button class="btn" disabled>🔒 Freischalten bei ${d.unlock} 🏆</button>`}
     </div>`;
   if (un) {
-    $('btnSelect').onclick = () => { save.selected = k; persist(); sfx('click'); renderBrawlers(); renderer.showMenu(k, save.skinSel[k]); };
-    $('btnUpgrade').onclick = () => { if (upgrade(k)) { sfx('reward'); toast(`${d.name} ist jetzt Stufe ${save.levels[k]}!`); renderBrawlers(); } };
+    $('btnSelect').onclick = async () => { await act({ type: 'select', key: k }); sfx('click'); renderBrawlers(); renderer.showMenu(k, save.skinSel[k]); };
+    $('btnUpgrade').onclick = async () => {
+      const r = await act({ type: 'upgrade', key: k });
+      if (r && !r.error) { sfx('reward'); toast(`${d.name} ist jetzt Stufe ${save.levels[k]}!`); } else toast(r?.error || 'Nicht genug Münzen.');
+      renderBrawlers();
+    };
   }
-  el.querySelectorAll('.skin').forEach((s) => s.onclick = () => {
+  el.querySelectorAll('.skin').forEach((s) => s.onclick = async () => {
     const i = +s.dataset.s;
     if (!un) { toast('Schalte den Brawler zuerst frei.'); return; }
     const owned = save.skins[k].includes(i);
     if (!owned && save.gems < SKIN_COST[i]) { toast(`Du brauchst ◆ ${SKIN_COST[i]} Juwelen.`); return; }
-    if (buySkin(k, i)) { sfx(owned ? 'click' : 'reward'); if (!owned) toast(`Skin „${SKIN_NAMES[i]}“ gekauft!`); renderBrawlers(); if (save.selected === k) renderer.showMenu(k, i); }
+    const r = await act({ type: 'skin', key: k, skin: i });
+    if (r && !r.error) { sfx(owned ? 'click' : 'reward'); if (!owned) toast(`Skin „${SKIN_NAMES[i]}“ gekauft!`); renderBrawlers(); if (save.selected === k) renderer.showMenu(k, i); }
   });
 }
 
@@ -198,8 +249,11 @@ function renderRoad() {
       ${ready ? `<button class="btn gold" data-claim="${i}">Abholen</button>` : done ? '<div class="lbl">✔ Abgeholt</div>' : `<div class="roadprog"><i style="width:${prog * 100}%"></i></div>`}
     </div>`;
   }).join('');
-  list.querySelectorAll('[data-claim]').forEach((b) => b.onclick = () => {
-    const r = claimRoad(+b.dataset.claim);
+  list.querySelectorAll('[data-claim]').forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    const res = await act({ type: 'claim', index: +b.dataset.claim });
+    const r = res && !res.error ? res.reward : null;
+    if (!r) renderRoad();
     if (r) {
       sfx('reward');
       const { label } = rewardHtml(r);
@@ -225,8 +279,11 @@ $('btnOpenBox').onclick = () => {
   $('boxLoot').innerHTML = '';
   box.className = 'bigbox shake';
   sfx('tick');
-  setTimeout(() => {
-    const items = openBox();
+  const pending = act({ type: 'box' });
+  setTimeout(async () => {
+    const res = await pending;
+    if (!res || res.error) { toast(res?.error || 'Kiste konnte nicht geöffnet werden.'); renderBoxes(); return; }
+    const items = res.items;
     box.className = 'bigbox open';
     sfx('reward');
     $('boxLoot').innerHTML = items.map((it, i) => {
@@ -243,7 +300,7 @@ $('btnOpenBox').onclick = () => {
 // ---------- Spielstart ----------
 function playerInfo() {
   const k = save.selected;
-  return { name: save.name, brawler: k, level: save.levels[k], skin: save.skinSel[k] || 0, mode: state.mode };
+  return { name: save.name, brawler: k, level: save.levels[k], skin: save.skinSel[k] || 0, mode: state.mode, token: token() };
 }
 
 $('btnPlay').onclick = () => { unlockAudio(); sfx('click'); state.online ? startOnline({}) : startOffline(); };
@@ -258,7 +315,7 @@ $('btnJoin').onclick = () => {
 
 function startOffline() {
   const s = new LocalSession(playerInfo());
-  s.start({ onStart: () => beginGame(s), onEnd: (r, you) => endGame(r, you) });
+  s.start({ onStart: () => beginGame(s), onEnd: (r, you) => endGame(r, you, { online: false }) });
 }
 
 function startOnline(extra) {
@@ -281,7 +338,7 @@ function startOnline(extra) {
       $('lobbyTimer').textContent = `${MODES[m.mode].name} · ${m.players.length}/${m.max} Spieler` + (m.startsIn !== null ? ` · Start in ${m.startsIn}s` : ' · Warte auf Start');
     },
     onStart: () => beginGame(s),
-    onEnd: (r, you) => endGame(r, you),
+    onEnd: (r, you, msg) => endGame(r, you, { online: true, server: msg }),
     onError: (msg) => {
       if (state.session !== s) return;
       state.session = null;
@@ -324,11 +381,15 @@ function quitGame() {
   show('home');
 }
 
-function endGame(result, you) {
+async function endGame(result, you, how) {
   if (!state.session) return;
   state.session = null;
   input.enabled = false;
-  const rw = applyMatch(result, you);
+  const rw = (await reportMatch(result, you, how)) || { outcome: null, troph: 0, coins: 0, meter: 0, newBoxes: 0, mvp: false, none: true };
+  if (!rw.outcome) {
+    const me = result.players.find((p) => p.id === you);
+    rw.outcome = result.mode === 'ffa' ? (me.rank === 1 ? 'win' : me.rank <= 3 ? 'draw' : 'loss') : result.winner === -1 ? 'draw' : result.winner === me.team ? 'win' : 'loss';
+  }
   renderer.endGame();
   renderer.showMenu(save.selected, save.skinSel[save.selected]);
   const title = $('resTitle');
@@ -339,7 +400,7 @@ function endGame(result, you) {
   title.className = rw.outcome === 'win' ? 'win' : rw.outcome === 'loss' ? 'loss' : '';
   sfx(rw.outcome === 'loss' ? 'lose' : 'win');
   $('resSub').textContent = MODES[result.mode].name + (result.mode !== 'ffa' ? ` · ${result.score[youP.team]} : ${result.score[1 - youP.team]}` : '') + (rw.mvp ? ' · ⭐ Du bist MVP!' : '');
-  $('resRewards').innerHTML = `
+  $('resRewards').innerHTML = rw.none ? '<div><small>Keine Belohnung für dieses Match</small></div>' : `
     <div>🏆 ${rw.troph >= 0 ? '+' : ''}${rw.troph}<small>Trophäen</small></div>
     <div><span style="color:#ffd23f">●</span> +${rw.coins}<small>Münzen</small></div>
     <div>🎁 +${rw.meter}%<small>Kisten-Fortschritt</small></div>
@@ -524,10 +585,11 @@ function frame(now) {
   }
 }
 
-// Start
-if (!state.online) state.online = false;
-show('home');
+// Start: Spielstand aus der Datenbank laden
 requestAnimationFrame(frame);
+await initSave();
+setSound(save.sound);
+show('home');
 if (save.stats.games === 0 && !localStorage.getItem('kk_intro')) {
   try { localStorage.setItem('kk_intro', '1'); } catch { /* egal */ }
   setTimeout(() => toast('Willkommen bei <b>Kistenkrawall</b>!<br>Wähle einen Modus und drück <b>SPIELEN</b>.', 3500), 400);

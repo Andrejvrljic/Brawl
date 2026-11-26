@@ -113,7 +113,7 @@ export class NetSession {
       }
       case 'end':
         this.result = m.result;
-        setTimeout(() => { this.closed = true; this.ws.close(); this.h.onEnd(m.result, m.you); }, 1000);
+        setTimeout(() => { this.closed = true; this.ws.close(); this.h.onEnd(m.result, m.you, m); }, 1000);
         break;
     }
   }

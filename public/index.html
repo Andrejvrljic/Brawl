@@ -20,7 +20,7 @@
   <!-- ========== HAUPTMENÜ ========== -->
   <section id="home" class="screen">
     <header class="topbar">
-      <button class="namebox" id="btnName" title="Namen ändern"><span class="ico">👤</span><span id="playerName">Spieler</span></button>
+      <button class="namebox" id="btnName" title="Konto"><span class="ico" id="accIco">👤</span><span id="playerName">Spieler</span></button>
       <div class="res"><span class="ico">🏆</span><b id="resTroph">0</b></div>
       <div class="res"><span class="ico coin">●</span><b id="resCoins">0</b></div>
       <div class="res"><span class="ico gem">◆</span><b id="resGems">0</b></div>
@@ -30,6 +30,7 @@
       <button class="navbtn" data-go="brawlers"><span class="big">🥊</span>Brawler</button>
       <button class="navbtn" data-go="road"><span class="big">🏆</span>Trophäen<span class="badge" id="badgeRoad"></span></button>
       <button class="navbtn" data-go="boxes"><span class="big">🎁</span>Kisten<span class="badge" id="badgeBox"></span></button>
+      <button class="navbtn" data-go="ranking"><span class="big">📊</span>Rangliste</button>
     </nav>
     <div class="homeinfo">
       <div class="selname" id="selName">Funke</div>
@@ -76,6 +77,12 @@
       <div class="boxloot" id="boxLoot"></div>
       <p class="hint">Kisten gibt es auf der Trophäenstraße und wenn der Kisten-Fortschritt durch Spiele voll wird.</p>
     </div>
+  </section>
+
+  <!-- ========== RANGLISTE ========== -->
+  <section id="ranking" class="screen panelscreen hidden">
+    <header class="panelhead"><button class="back" data-go="home">◀</button><h2>Rangliste</h2></header>
+    <div class="ranklist" id="rankList"></div>
   </section>
 
   <!-- ========== MODUSWAHL ========== -->

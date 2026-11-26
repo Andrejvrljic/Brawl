@@ -5,7 +5,8 @@
   "type": "module",
   "main": "server/index.js",
   "scripts": {
-    "start": "node server/index.js"
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
@@ -13,5 +14,7 @@
   "devDependencies": {
     "three": "0.160.0"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=22.13"
+  }
 }
