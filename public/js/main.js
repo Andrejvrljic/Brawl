@@ -7,7 +7,8 @@ import { LocalSession, NetSession, serverUrl } from './session.js';
 import { sfx, setSound, unlockAudio } from './audio.js';
 import { BRAWLERS, BRAWLER_ORDER, MAX_LEVEL, SKIN_NAMES, SKIN_COST, levelMult } from '../shared/brawlers.js';
 import { MODES } from '../shared/game.js';
-import { save, account, initSave, act, reportMatch, register, login, logout, leaderboard, token, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
+import { save, account, initSave, act, reportMatch, signup, login, logout, leaderboard, token, isLoggedIn, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
+import { Friends } from './friends.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('view');
@@ -48,7 +49,7 @@ const portrait = (k, s = save.skinSel[k] || 0) => portraits[k + s];
 
 // ---------- Allgemeines UI ----------
 function show(id) {
-  for (const s of ['home', 'brawlers', 'road', 'boxes', 'ranking', 'lobby', 'results']) $(s).classList.toggle('hidden', s !== id);
+  for (const s of ['auth', 'home', 'brawlers', 'road', 'boxes', 'ranking', 'friends', 'lobby', 'results']) $(s).classList.toggle('hidden', s !== id);
   $('hud').classList.toggle('hidden', id !== 'game');
   state.screen = id;
   if (id === 'home') refreshHome();
@@ -56,7 +57,8 @@ function show(id) {
   if (id === 'road') renderRoad();
   if (id === 'boxes') renderBoxes();
   if (id === 'ranking') renderRanking();
-  if (['home', 'brawlers', 'road', 'boxes', 'ranking'].includes(id) && renderer.mode !== 'menu') renderer.showMenu(save.selected, save.skinSel[save.selected]);
+  if (id === 'friends') { renderFriends(); friends.send({ t: 'friends' }); }
+  if (['auth', 'home', 'brawlers', 'road', 'boxes', 'ranking', 'friends'].includes(id) && renderer.mode !== 'menu') renderer.showMenu(save.selected, save.skinSel[save.selected]);
 }
 
 let toastT = 0;
@@ -78,7 +80,8 @@ document.addEventListener('click', (e) => {
 function refreshHome() {
   const k = save.selected, def = BRAWLERS[k];
   $('playerName').textContent = save.name;
-  $('accIco').textContent = account.mode === 'server' ? (account.registered ? '☁️' : '👤') : '💾';
+  $('accIco').textContent = isLoggedIn() ? '👤' : '💾';
+  $('badgeFriends').textContent = friends.badge || '';
   $('resTroph').textContent = totalTrophies();
   $('resCoins').textContent = save.coins;
   $('resGems').textContent = save.gems;
@@ -101,40 +104,166 @@ $('btnName').onclick = () => accountModal();
 
 // ---------- Konto (Datenbank) ----------
 function accountModal(msg = '') {
-  const srv = account.mode === 'server';
-  let status;
-  if (!srv) status = '💾 Kein Server verbunden – dein Fortschritt wird nur in diesem Browser gespeichert.';
-  else if (account.registered) status = `☁️ Angemeldet als <b>${escapeHtml(account.login)}</b> – dein Fortschritt ist in der Datenbank gesichert. Platz <b>${account.rank}</b> in der Rangliste.`;
-  else status = '👤 Gastkonto – dein Fortschritt ist in der Datenbank, aber nur dieses Gerät kennt den Schlüssel. Sichere dein Konto, um auf anderen Geräten weiterzuspielen.';
+  const on = isLoggedIn();
+  const status = on
+    ? `Angemeldet als <b>${escapeHtml(account.login)}</b> – dein Fortschritt ist in der Datenbank gesichert. Platz <b>${account.rank}</b> in der Rangliste.`
+    : '💾 Kein Server verbunden – du spielst offline gegen Bots, der Fortschritt bleibt nur in diesem Browser.';
   modal(`<h2>Konto</h2>
     <p class="hint" style="text-align:left;max-width:none">${status}</p>
     <label class="flabel">Name im Spiel</label>
     <div class="row"><input id="nameIn" maxlength="14" value="${escapeHtml(save.name)}"><button class="btn" id="nameOk" style="flex:0 0 auto;margin-bottom:12px">Speichern</button></div>
-    ${srv && !account.registered ? `
-      <h2 style="margin-top:6px">Konto sichern</h2>
-      <input id="regUser" placeholder="Benutzername" autocomplete="username" maxlength="20">
-      <input id="regPass" type="password" placeholder="Passwort (mind. 6 Zeichen)" autocomplete="new-password">
-      <div class="row"><button class="btn gold" id="regOk">Sichern</button></div>
-      <h2 style="margin-top:14px">Schon ein Konto?</h2>
-      <input id="logUser" placeholder="Benutzername" autocomplete="username" maxlength="20">
-      <input id="logPass" type="password" placeholder="Passwort" autocomplete="current-password">
-      <div class="row"><button class="btn" id="logOk">Anmelden</button></div>` : ''}
-    ${srv && account.registered ? '<div class="row"><button class="btn gold" id="logoutOk">Abmelden</button></div>' : ''}
+    ${on ? '<div class="row"><button class="btn gold" id="logoutOk">Abmelden</button></div>' : ''}
     <div class="formmsg" id="accMsg">${msg}</div>`);
   const setMsg = (m) => { $('accMsg').textContent = m; };
   $('nameOk').onclick = async () => {
     const r = await act({ type: 'rename', name: $('nameIn').value });
     if (!r || r.error) setMsg(r?.error || 'Ungültiger Name.'); else { setMsg('Name gespeichert ✔'); refreshHome(); }
   };
-  if ($('regOk')) $('regOk').onclick = async () => {
-    const err = await register($('regUser').value.trim(), $('regPass').value);
-    if (err) setMsg(err); else { sfx('reward'); refreshHome(); accountModal('Konto gesichert ✔ Melde dich auf anderen Geräten mit diesem Namen an.'); }
+  if ($('logoutOk')) $('logoutOk').onclick = async () => {
+    await logout();
+    friends.stop();
+    closeModal();
+    showAuth('auth');
+    toast('Abgemeldet.');
   };
-  if ($('logOk')) $('logOk').onclick = async () => {
-    const err = await login($('logUser').value.trim(), $('logPass').value);
-    if (err) setMsg(err); else { sfx('reward'); setSound(save.sound); closeModal(); refreshHome(); toast(`Willkommen zurück, <b>${escapeHtml(save.name)}</b>!`); }
-  };
-  if ($('logoutOk')) $('logoutOk').onclick = async () => { await logout(); closeModal(); refreshHome(); toast('Abgemeldet.'); };
+}
+
+// ---------- Anmelden / Konto erstellen ----------
+let authMode = 'signup';
+function setAuthMode(m) {
+  authMode = m;
+  $('tabSignup').classList.toggle('on', m === 'signup');
+  $('tabLogin').classList.toggle('on', m === 'login');
+  $('authPass2Wrap').style.display = m === 'signup' ? '' : 'none';
+  $('authPass').autocomplete = m === 'signup' ? 'new-password' : 'current-password';
+  $('authOk').textContent = m === 'signup' ? "LOS GEHT'S" : 'ANMELDEN';
+  $('authMsg').textContent = '';
+}
+$('tabSignup').onclick = () => setAuthMode('signup');
+$('tabLogin').onclick = () => setAuthMode('login');
+
+function showAuth(st) {
+  const offline = st === 'offline';
+  $('authForm').style.display = offline ? 'none' : '';
+  document.querySelector('.authtabs').style.display = offline ? 'none' : '';
+  $('authOffline').style.display = offline ? '' : 'none';
+  $('authHint').textContent = offline
+    ? 'Der Spielserver ist gerade nicht erreichbar. Konten, Freunde und Online-Spiele gehen nur mit Server – offline kannst du gegen Bots üben.'
+    : 'Dein Benutzername ist gleichzeitig dein Name im Spiel. Freunde finden dich damit.';
+  if (!offline && account.mode === 'server' && !account.registered && token()) {
+    $('authHint').textContent = 'Du hast schon gespielt – erstelle jetzt dein Konto, dein Fortschritt bleibt erhalten.';
+  }
+  setAuthMode(authMode);
+  show('auth');
+}
+
+$('authForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  unlockAudio();
+  const user = $('authUser').value.trim(), pass = $('authPass').value;
+  const msg = (t) => { $('authMsg').textContent = t; };
+  if (user.length < 3) return msg('Benutzername: mindestens 3 Zeichen.');
+  if (pass.length < 6) return msg('Passwort: mindestens 6 Zeichen.');
+  if (authMode === 'signup' && pass !== $('authPass2').value) return msg('Die Passwörter stimmen nicht überein.');
+  $('authOk').disabled = true;
+  msg(authMode === 'signup' ? 'Erstelle Konto…' : 'Melde an…');
+  const err = authMode === 'signup' ? await signup(user, pass) : await login(user, pass);
+  $('authOk').disabled = false;
+  if (err) return msg(err);
+  $('authPass').value = $('authPass2').value = '';
+  sfx('reward');
+  enterGame();
+  toast(authMode === 'signup' ? `Willkommen, <b>${escapeHtml(save.name)}</b>! Füge unter 👥 Freunde hinzu.` : `Willkommen zurück, <b>${escapeHtml(save.name)}</b>!`, 3500);
+});
+$('authOffline').onclick = () => { state.online = false; enterGame(); };
+
+// Nach dem Anmelden: Menü und Freunde-Verbindung starten
+function enterGame() {
+  state.online = isLoggedIn();
+  setSound(save.sound);
+  if (isLoggedIn()) friends.start(token());
+  show('home');
+}
+
+// ---------- Freunde ----------
+const friends = new Friends({
+  onChange: () => {
+    $('badgeFriends').textContent = friends.badge || '';
+    if (state.screen === 'friends') renderFriends();
+  },
+  onMsg: (m) => {
+    const el = $('friendMsg');
+    if (el) { el.textContent = m.error || m.ok || ''; el.style.color = m.error ? '#ff8a8e' : ''; }
+    if (state.screen !== 'friends' && (m.error || m.ok)) toast(escapeHtml(m.error || m.ok));
+  },
+  onRequest: (from) => { sfx('reward'); if (state.screen !== 'game') toast(`👥 <b>${escapeHtml(from.name)}</b> möchte dein Freund sein!`, 3500); },
+  onInvite: (inv) => {
+    sfx('reward');
+    if (state.screen === 'game' || state.screen === 'lobby') { toast(`⚔️ <b>${escapeHtml(inv.from.name)}</b> lädt dich ein – nach dem Match unter 👥 Freunde beitreten.`, 4000); return; }
+    modal(`<h2>⚔️ Einladung</h2>
+      <p class="hint" style="max-width:none"><b>${escapeHtml(inv.from.name)}</b> lädt dich zu <b>${MODES[inv.mode]?.name || 'einem Match'}</b> ein.</p>
+      <div class="row"><button class="btn grey" id="invNo">Später</button><button class="btn gold" id="invYes">Beitreten</button></div>`);
+    $('invNo').onclick = closeModal;
+    $('invYes').onclick = () => { closeModal(); joinInvite(inv); };
+  },
+});
+
+function joinInvite(inv) {
+  friends.dropInvite(inv.code);
+  if (!isLoggedIn()) return;
+  state.mode = inv.mode;
+  startOnline({ code: inv.code });
+}
+
+const STATUS_TXT = { online: 'online', lobby: 'in der Lobby', ingame: 'spielt gerade', offline: 'offline' };
+function renderFriends() {
+  const el = $('friendLists');
+  if (!isLoggedIn()) { el.innerHTML = '<p class="hint">Freunde gibt es nur mit Konto und Server.</p>'; return; }
+  const row = (f, buttons, sub = '') => `<div class="frow"><span class="dot ${f.online || ''}"></span><div class="fname">${escapeHtml(f.name)}<small>${sub}</small></div>${buttons}</div>`;
+  let html = '';
+  const inv = friends.openInvites;
+  if (inv.length) {
+    html += `<div class="fsec"><h3>⚔️ Einladungen</h3>${inv.map((i) => `<div class="frow invite"><div class="fname">${escapeHtml(i.from.name)}<small>${MODES[i.mode]?.name || ''} · Raum ${i.code}</small></div><button class="btn gold" data-join="${i.code}">Beitreten</button></div>`).join('')}</div>`;
+  }
+  const inc = friends.incoming;
+  if (inc.length) {
+    html += `<div class="fsec"><h3>Freundschaftsanfragen</h3>${inc.map((f) => row(f, `<button class="btn" data-accept="${f.id}">Annehmen</button><button class="btn grey" data-decline="${f.id}">✕</button>`, '@' + escapeHtml(f.login) + ' · 🏆 ' + f.trophies)).join('')}</div>`;
+  }
+  const fr = [...friends.friends].sort((a, b) => (a.online === 'offline') - (b.online === 'offline'));
+  html += `<div class="fsec"><h3>Deine Freunde (${fr.length})</h3>${fr.length ? fr.map((f) => row(f,
+    `${f.online === 'online' ? `<button class="btn gold" data-invite="${f.id}">Einladen</button>` : ''}<button class="btn grey" data-remove="${f.id}" title="Entfernen">✕</button>`,
+    `${STATUS_TXT[f.online] || 'offline'} · 🏆 ${f.trophies}`)).join('') : '<p class="hint">Noch keine Freunde. Gib oben den Benutzernamen deines Freundes ein!</p>'}</div>`;
+  const out = friends.outgoing;
+  if (out.length) html += `<div class="fsec"><h3>Gesendete Anfragen</h3>${out.map((f) => row(f, `<button class="btn grey" data-remove="${f.id}">Zurückziehen</button>`, 'wartet auf Antwort')).join('')}</div>`;
+  el.innerHTML = html;
+  el.querySelectorAll('[data-accept]').forEach((b) => b.onclick = () => { friends.answer(+b.dataset.accept, true); sfx('reward'); });
+  el.querySelectorAll('[data-decline]').forEach((b) => b.onclick = () => friends.answer(+b.dataset.decline, false));
+  el.querySelectorAll('[data-remove]').forEach((b) => b.onclick = () => {
+    const f = friends.list.find((x) => x.id === +b.dataset.remove);
+    modal(`<h2>${f && f.status === 'friend' ? 'Freund entfernen?' : 'Anfrage zurückziehen?'}</h2><p class="hint" style="max-width:none">${escapeHtml(f ? f.name : '')}</p><div class="row"><button class="btn grey" id="rmNo">Abbrechen</button><button class="btn gold" id="rmYes">Ja</button></div>`);
+    $('rmNo').onclick = closeModal;
+    $('rmYes').onclick = () => { closeModal(); friends.remove(+b.dataset.remove); };
+  });
+  el.querySelectorAll('[data-invite]').forEach((b) => b.onclick = () => inviteFriend(+b.dataset.invite));
+  el.querySelectorAll('[data-join]').forEach((b) => b.onclick = () => { const i = inv.find((x) => x.code === b.dataset.join); if (i) joinInvite(i); });
+}
+
+$('addFriendForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = $('addFriendIn').value.trim();
+  if (v.length < 3) { $('friendMsg').textContent = 'Gib den Benutzernamen deines Freundes ein.'; return; }
+  if (!friends.add(v)) { $('friendMsg').textContent = 'Keine Verbindung zum Server – kurz warten.'; return; }
+  $('addFriendIn').value = '';
+});
+
+// Freund einladen: eigenen privaten Raum öffnen (falls nötig) und Einladung schicken
+function inviteFriend(id) {
+  if (state.lobbyCode && state.screen === 'lobby') {
+    friends.invite(id, state.lobbyCode);
+    return;
+  }
+  state.pendingInvite = id;
+  startOnline({ create: true });
 }
 
 // ---------- Rangliste ----------
@@ -150,7 +279,8 @@ async function renderRanking() {
   } catch { el.innerHTML = '<p class="hint">Rangliste konnte nicht geladen werden.</p>'; }
 }
 $('netOnline').onclick = () => {
-  if (!serverUrl() || account.mode !== 'server') { toast('Online-Spiele brauchen den Server: im Projektordner <b>npm start</b> ausführen und die angezeigte Adresse öffnen. Hier kannst du gegen Bots spielen.', 4000); return; }
+  if (!serverUrl() || account.mode !== 'server') { toast('Der Spielserver ist nicht erreichbar – hier kannst du gegen Bots spielen.', 4000); return; }
+  if (needAccount()) return;
   state.online = true; refreshHome();
 };
 $('netOffline').onclick = () => { state.online = false; refreshHome(); };
@@ -304,7 +434,8 @@ function playerInfo() {
 }
 
 $('btnPlay').onclick = () => { unlockAudio(); sfx('click'); state.online ? startOnline({}) : startOffline(); };
-$('btnCreate').onclick = () => { sfx('click'); startOnline({ create: true }); };
+function needAccount() { if (isLoggedIn()) return false; toast('Für Online-Spiele brauchst du ein Konto.'); showAuth(account.mode === 'server' ? 'auth' : 'offline'); return true; }
+$('btnCreate').onclick = () => { sfx('click'); if (!needAccount()) startOnline({ create: true }); };
 $('btnJoin').onclick = () => {
   modal(`<h2>Raum-Code eingeben</h2><input id="codeIn" maxlength="4" placeholder="ABCD" style="text-transform:uppercase"><div class="row"><button class="btn" id="codeOk">Beitreten</button></div>`);
   const i = $('codeIn'); i.focus();
@@ -319,6 +450,9 @@ function startOffline() {
 }
 
 function startOnline(extra) {
+  if (needAccount()) return;
+  state.lobbyCode = null;
+  $('lobbyExtra').style.display = 'none';
   const s = new NetSession({ ...playerInfo(), ...extra });
   state.session = s;
   $('lobbyTitle').textContent = extra.create ? 'Privater Raum' : extra.code ? 'Raum ' + extra.code : 'Suche Mitspieler…';
@@ -328,7 +462,18 @@ function startOnline(extra) {
   show('lobby');
   s.connect({
     onLobby: (m) => {
-      if (m.code) { $('lobbyTitle').textContent = 'Privater Raum – Code an Freunde schicken:'; $('lobbyCode').textContent = m.code; }
+      if (m.code) {
+        $('lobbyTitle').textContent = 'Privater Raum – lade Freunde ein oder schick den Code:';
+        $('lobbyCode').textContent = m.code;
+        $('lobbyExtra').style.display = '';
+        state.lobbyTogether = m.together;
+        $('btnTeams').textContent = m.mode === 'ffa' ? '⚔️ Jeder gegen Jeden' : (m.together ? '🤝 Zusammen im Team' : '⚔️ Gegeneinander');
+        $('btnTeams').disabled = m.mode === 'ffa';
+        if (!state.lobbyCode) {
+          state.lobbyCode = m.code;
+          if (state.pendingInvite) { friends.invite(state.pendingInvite, m.code); state.pendingInvite = null; }
+        }
+      }
       const slots = [];
       for (let i = 0; i < m.max; i++) {
         const p = m.players[i];
@@ -349,7 +494,17 @@ function startOnline(extra) {
   });
 }
 $('btnStartNow').onclick = () => { if (state.session && state.session.startNow) state.session.startNow(); };
-$('btnLeaveLobby').onclick = () => { if (state.session) state.session.leave(); state.session = null; show('home'); };
+$('btnTeams').onclick = () => { if (state.session && state.session.send) state.session.send({ t: 'teams', together: !state.lobbyTogether }); };
+$('btnInvite').onclick = () => {
+  const on = friends.friends.filter((f) => f.online === 'online');
+  modal(`<h2>👥 Freunde einladen</h2>${on.length
+    ? on.map((f) => `<div class="frow"><span class="dot online"></span><div class="fname">${escapeHtml(f.name)}<small>🏆 ${f.trophies}</small></div><button class="btn gold" data-inv="${f.id}">Einladen</button></div>`).join('')
+    : '<p class="hint" style="max-width:none">Gerade ist keiner deiner Freunde online. Schick ihnen den Raum-Code!</p>'}
+    <div class="row" style="margin-top:10px"><button class="btn grey" id="invClose">Fertig</button></div>`);
+  $('invClose').onclick = closeModal;
+  $('modalBox').querySelectorAll('[data-inv]').forEach((b) => b.onclick = () => { friends.invite(+b.dataset.inv, state.lobbyCode); b.disabled = true; b.textContent = 'Eingeladen ✔'; });
+};
+$('btnLeaveLobby').onclick = () => { if (state.session) state.session.leave(); state.session = null; state.lobbyCode = null; show('home'); };
 
 function beginGame(s) {
   state.session = s;
@@ -585,14 +740,8 @@ function frame(now) {
   }
 }
 
-// Start: Spielstand aus der Datenbank laden
+// Start: angemeldet? -> Menü, sonst Konto erstellen / anmelden
 requestAnimationFrame(frame);
-await initSave();
-// Ohne erreichbaren Server (z. B. reine Webseite): nur gegen Bots
-if (account.mode !== 'server') state.online = false;
-setSound(save.sound);
-show('home');
-if (save.stats.games === 0 && !localStorage.getItem('kk_intro')) {
-  try { localStorage.setItem('kk_intro', '1'); } catch { /* egal */ }
-  setTimeout(() => toast('Willkommen bei <b>Kistenkrawall</b>!<br>Wähle einen Modus und drück <b>SPIELEN</b>.', 3500), 400);
-}
+const startState = await initSave();
+if (startState === 'ok') enterGame();
+else showAuth(startState);

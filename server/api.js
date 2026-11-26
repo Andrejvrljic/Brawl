@@ -28,10 +28,12 @@ export async function handleApi(db, { method, path, body = {}, token = '', ip = 
   switch (`${method} ${path}`) {
     case 'GET /api/health': return out(200, { ok: true, accounts: await db.accountCount(), ...stats });
     case 'GET /api/leaderboard': return out(200, { top: await db.leaderboard(50) });
-    case 'POST /api/guest': {
-      if (limited('guest:' + ip, 20, 10 * 60000)) return out(429, { error: 'Zu viele neue Konten – später nochmal.' });
-      const { id, token: t } = await db.createGuest(body.import);
-      return out(200, { token: t, ...(await publicProfile(db, await db.account(id))) });
+    case 'POST /api/guest': return out(410, { error: 'Zum Spielen brauchst du ein Konto.' });
+    case 'POST /api/signup': {
+      if (limited('signup:' + ip, 20, 10 * 60000)) return out(429, { error: 'Zu viele neue Konten – später nochmal.' });
+      const r = await db.createAccount(String(body.login || '').trim(), body.password);
+      if (r.error) return out(400, { error: r.error });
+      return out(200, { token: r.token, ...(await publicProfile(db, await db.account(r.id))) });
     }
     case 'POST /api/login': {
       if (limited('login:' + ip, 10, 5 * 60000)) return out(429, { error: 'Zu viele Versuche – in ein paar Minuten nochmal.' });
@@ -55,6 +57,7 @@ export async function handleApi(db, { method, path, body = {}, token = '', ip = 
     case 'POST /api/action': {
       const acc = await auth();
       if (!acc) return out(401, { error: 'Nicht angemeldet.' });
+      if (!acc.registered) return out(403, { error: 'Bitte erstelle zuerst ein Konto.' });
       let result;
       if (body.type === 'offline') {
         const now = Date.now();

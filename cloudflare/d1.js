@@ -11,6 +11,9 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS matches (
     id INTEGER PRIMARY KEY AUTOINCREMENT, account_id INTEGER NOT NULL, mode TEXT NOT NULL, brawler TEXT NOT NULL,
     outcome TEXT NOT NULL, trophies INTEGER NOT NULL, kills INTEGER NOT NULL, online INTEGER NOT NULL, played INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS friends (
+    a INTEGER NOT NULL, b INTEGER NOT NULL, requester INTEGER NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (a, b))`,
+  'CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b)',
   'CREATE INDEX IF NOT EXISTS idx_accounts_trophies ON accounts(trophies DESC)',
   'CREATE INDEX IF NOT EXISTS idx_sessions_account ON sessions(account_id)',
   'CREATE INDEX IF NOT EXISTS idx_matches_account ON matches(account_id, played DESC)',
@@ -88,6 +91,57 @@ export class D1Store {
 
   async logout(token) { if (typeof token === 'string' && token) await (await this.q('DELETE FROM sessions WHERE token_hash = ?', await sha(token))).run(); }
 
+  async createAccount(login, password) {
+    const err = checkLogin(login, password);
+    if (err) return { error: err };
+    if (await (await this.q('SELECT id FROM accounts WHERE login = ?', login)).first()) return { error: 'Dieser Benutzername ist schon vergeben.' };
+    const p = freshProfile();
+    p.name = login.slice(0, 14);
+    const now = Date.now();
+    const r = await (await this.q('INSERT INTO accounts (login, pass, name, profile, trophies, created, updated) VALUES (?, ?, ?, ?, 0, ?, ?)',
+      login, await hashPassword(password), p.name, JSON.stringify(p), now, now)).run();
+    const id = r.meta.last_row_id;
+    return { id, token: await this.newSession(id) };
+  }
+
+  // ---------- Freunde ----------
+  async friends(id) {
+    const { results } = await (await this.q(`SELECT f.requester, f.status, acc.id, acc.name, acc.login, acc.trophies FROM friends f
+      JOIN accounts acc ON acc.id = CASE WHEN f.a = ? THEN f.b ELSE f.a END
+      WHERE f.a = ? OR f.b = ? ORDER BY acc.name COLLATE NOCASE`, id, id, id)).all();
+    return results.map((r) => ({
+      id: r.id, name: r.name, login: r.login, trophies: r.trophies,
+      status: r.status === 'accepted' ? 'friend' : (r.requester === id ? 'outgoing' : 'incoming'),
+    }));
+  }
+  async pair(x, y) { const [a, b] = x < y ? [x, y] : [y, x]; return { a, b, f: await (await this.q('SELECT * FROM friends WHERE a = ? AND b = ?', a, b)).first() }; }
+  async areFriends(x, y) { const { f } = await this.pair(x, y); return !!f && f.status === 'accepted'; }
+  async friendRequest(id, login) {
+    const other = typeof login === 'string' ? await (await this.q('SELECT id FROM accounts WHERE login = ?', login.trim())).first() : null;
+    if (!other) return { error: 'Diesen Benutzernamen gibt es nicht.' };
+    if (other.id === id) return { error: 'Du kannst dich nicht selbst hinzufügen.' };
+    const { a, b, f } = await this.pair(id, other.id);
+    if (f && f.status === 'accepted') return { error: 'Ihr seid schon Freunde.' };
+    if (f && f.requester === id) return { error: 'Anfrage wurde schon gesendet.' };
+    if (f) { await (await this.q("UPDATE friends SET status = 'accepted' WHERE a = ? AND b = ?", a, b)).run(); return { ok: true, other: other.id, accepted: true }; }
+    const n = (await (await this.q('SELECT COUNT(*) AS n FROM friends WHERE a = ? OR b = ?', id, id)).first()).n;
+    if (n >= 100) return { error: 'Maximal 100 Freunde.' };
+    await (await this.q('INSERT INTO friends (a, b, requester, status, created) VALUES (?, ?, ?, ?, ?)', a, b, id, 'pending', Date.now())).run();
+    return { ok: true, other: other.id };
+  }
+  async friendRespond(id, otherId, accept) {
+    const { a, b, f } = await this.pair(id, otherId);
+    if (!f || f.status !== 'pending' || f.requester === id) return { error: 'Keine offene Anfrage.' };
+    if (accept) await (await this.q("UPDATE friends SET status = 'accepted' WHERE a = ? AND b = ?", a, b)).run();
+    else await (await this.q('DELETE FROM friends WHERE a = ? AND b = ?', a, b)).run();
+    return { ok: true };
+  }
+  async friendRemove(id, otherId) {
+    const { a, b } = await this.pair(id, otherId);
+    await (await this.q('DELETE FROM friends WHERE a = ? AND b = ?', a, b)).run();
+    return { ok: true };
+  }
+
   async register(acc, login, password) {
     const err = checkLogin(login, password);
     if (err) return { error: err };
@@ -116,7 +170,7 @@ export class D1Store {
   }
 
   async leaderboard(n = 50) {
-    const { results } = await (await this.q('SELECT id, name, trophies, login IS NOT NULL AS registered FROM accounts WHERE trophies > 0 ORDER BY trophies DESC, updated ASC LIMIT ?', n)).all();
+    const { results } = await (await this.q('SELECT id, name, trophies, login IS NOT NULL AS registered FROM accounts WHERE trophies > 0 AND login IS NOT NULL ORDER BY trophies DESC, updated ASC LIMIT ?', n)).all();
     return results.map((r) => ({ id: r.id, name: r.name, trophies: r.trophies, registered: !!r.registered }));
   }
 

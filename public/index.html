@@ -17,8 +17,34 @@
   <canvas id="view"></canvas>
   <div id="overlay"></div>
 
+  <!-- ========== ANMELDEN / KONTO ERSTELLEN ========== -->
+  <section id="auth" class="screen hidden">
+    <div class="authbox">
+      <h1 class="logo">KISTEN<span>KRAWALL</span></h1>
+      <p class="tagline">Melde dich an, um mit Freunden zu spielen.</p>
+      <div class="authtabs">
+        <button class="tab on" id="tabSignup">Konto erstellen</button>
+        <button class="tab" id="tabLogin">Anmelden</button>
+      </div>
+      <form id="authForm" autocomplete="on">
+        <label class="flabel" for="authUser">Benutzername</label>
+        <input id="authUser" name="username" autocomplete="username" maxlength="20" placeholder="z. B. andrej" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <label class="flabel" for="authPass">Passwort</label>
+        <input id="authPass" name="password" type="password" autocomplete="new-password" placeholder="mindestens 6 Zeichen">
+        <div id="authPass2Wrap">
+          <label class="flabel" for="authPass2">Passwort wiederholen</label>
+          <input id="authPass2" type="password" autocomplete="new-password">
+        </div>
+        <button class="playbtn" id="authOk" type="submit">LOS GEHT'S</button>
+        <div class="formmsg" id="authMsg"></div>
+      </form>
+      <p class="hint" id="authHint">Dein Benutzername ist gleichzeitig dein Name im Spiel. Freunde finden dich damit.</p>
+      <button class="chip" id="authOffline" style="display:none">🤖 Offline gegen Bots spielen</button>
+    </div>
+  </section>
+
   <!-- ========== HAUPTMENÜ ========== -->
-  <section id="home" class="screen">
+  <section id="home" class="screen hidden">
     <header class="topbar">
       <button class="namebox" id="btnName" title="Konto"><span class="ico" id="accIco">👤</span><span id="playerName">Spieler</span></button>
       <div class="res"><span class="ico">🏆</span><b id="resTroph">0</b></div>
@@ -30,6 +56,7 @@
       <button class="navbtn" data-go="brawlers"><span class="big">🥊</span>Brawler</button>
       <button class="navbtn" data-go="road"><span class="big">🏆</span>Trophäen<span class="badge" id="badgeRoad"></span></button>
       <button class="navbtn" data-go="boxes"><span class="big">🎁</span>Kisten<span class="badge" id="badgeBox"></span></button>
+      <button class="navbtn" data-go="friends"><span class="big">👥</span>Freunde<span class="badge" id="badgeFriends"></span></button>
       <button class="navbtn" data-go="ranking"><span class="big">📊</span>Rangliste</button>
     </nav>
     <div class="homeinfo">
@@ -79,6 +106,19 @@
     </div>
   </section>
 
+  <!-- ========== FREUNDE ========== -->
+  <section id="friends" class="screen panelscreen hidden">
+    <header class="panelhead"><button class="back" data-go="home">◀</button><h2>Freunde</h2></header>
+    <div class="friendwrap">
+      <form class="addfriend" id="addFriendForm">
+        <input id="addFriendIn" placeholder="Benutzername deines Freundes" maxlength="20" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="btn" type="submit">Hinzufügen</button>
+      </form>
+      <div class="formmsg" id="friendMsg"></div>
+      <div id="friendLists"></div>
+    </div>
+  </section>
+
   <!-- ========== RANGLISTE ========== -->
   <section id="ranking" class="screen panelscreen hidden">
     <header class="panelhead"><button class="back" data-go="home">◀</button><h2>Rangliste</h2></header>
@@ -95,6 +135,10 @@
       <div class="code" id="lobbyCode"></div>
       <div class="lobbyplayers" id="lobbyPlayers"></div>
       <div class="lobbytimer" id="lobbyTimer"></div>
+      <div class="row lobbyextra" id="lobbyExtra">
+        <button class="chip" id="btnInvite">👥 Freunde einladen</button>
+        <button class="chip" id="btnTeams">🤝 Zusammen im Team</button>
+      </div>
       <div class="row">
         <button class="playbtn small" id="btnStartNow">Jetzt starten</button>
         <button class="chip" id="btnLeaveLobby">Abbrechen</button>

@@ -267,3 +267,37 @@ body.touch .superbar, body.touch .help { display: none; }
 .formmsg { font-family: Nunito, sans-serif; font-weight: 900; font-size: 14px; color: var(--gold); text-align: center; min-height: 18px; margin-top: 8px; }
 .modalbox input[type=password], #regUser, #logUser { font-size: 18px; margin-bottom: 8px; }
 @media (max-height: 520px) { .navbtn { padding: 5px 2px; } .navbtn .big { font-size: 20px; } .sidenav { gap: 7px; } }
+
+/* Anmelden */
+#auth { display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at top, rgba(75,56,163,.85), rgba(34,22,79,.95)); overflow-y: auto; touch-action: pan-y; }
+.authbox { width: min(420px, 100%); background: rgba(0,0,0,.35); border-radius: 22px; padding: 22px 20px; text-align: center; margin: auto; }
+.logo { margin: 0; font-size: 44px; font-weight: normal; line-height: 1; letter-spacing: 1px; color: var(--gold); }
+.logo span { display: block; color: #fff; font-size: 38px; }
+.tagline { font-family: Nunito, sans-serif; font-weight: 900; color: var(--ink2); margin: 8px 0 14px; }
+.authtabs { display: flex; gap: 6px; background: rgba(0,0,0,.3); border-radius: 14px; padding: 4px; margin-bottom: 14px; }
+.tab { flex: 1; background: transparent; border-radius: 10px; padding: 9px; font-size: 16px; color: var(--ink2); }
+.tab.on { background: var(--panel2); color: #fff; box-shadow: var(--shadow); }
+#authForm { text-align: left; }
+#authForm input, .addfriend input { width: 100%; font-family: Nunito, sans-serif; font-weight: 900; font-size: 18px; padding: 11px 12px; border-radius: 12px; border: 0; margin-bottom: 10px; }
+#authForm .playbtn { width: 100%; margin-top: 6px; font-size: 26px; }
+#authOffline { width: 100%; margin-top: 4px; }
+
+/* Freunde */
+.friendwrap { max-width: 620px; margin: 0 auto; }
+.addfriend { display: flex; gap: 8px; }
+.addfriend input { margin: 0; flex: 1; min-width: 0; }
+.addfriend .btn { flex: 0 0 auto; }
+.fsec { margin-top: 16px; }
+.fsec h3 { margin: 0 0 8px; font-weight: normal; font-size: 18px; color: var(--ink2); }
+.frow { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.08); border-radius: 14px; padding: 9px 12px; margin-bottom: 6px; }
+.frow.invite { background: rgba(255,210,63,.18); border: 2px solid var(--gold); }
+.frow .fname { flex: 1; min-width: 0; font-size: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frow .fname small { display: block; font-family: Nunito, sans-serif; font-weight: 900; font-size: 12px; color: var(--ink2); }
+.frow .btn { padding: 7px 11px; font-size: 14px; }
+.frow .btn.grey { background: rgba(255,255,255,.18); color: #fff; }
+.dot { width: 12px; height: 12px; border-radius: 50%; background: #6b6585; flex: 0 0 auto; }
+.dot.online { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.dot.lobby, .dot.ingame { background: var(--orange); }
+.lobbyextra { margin-bottom: 12px; flex-wrap: wrap; }
+.lobbyextra .chip { flex: 0 1 auto; padding: 9px 14px; }
+.btn.grey { background: rgba(255,255,255,.18); color: #fff; }

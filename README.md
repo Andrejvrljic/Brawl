@@ -4,7 +4,12 @@ Ein 3D-Arena-Brawler aus der Vogelperspektive – mit Online-Multiplayer, 8 Braw
 
 ## Online spielen (Cloudflare, wie ECLIPSE)
 
-**https://kistenkrawall.dinnerboneagg.workers.dev** – Multiplayer, Konten, Datenbank und Rangliste, dauerhaft online.
+**https://kistenkrawall.dinnerboneagg.workers.dev** – Multiplayer, Konten, Freunde, Datenbank und Rangliste, dauerhaft online.
+
+- **Konto nötig:** Beim ersten Öffnen erstellt man ein Konto (Benutzername + Passwort) oder meldet sich an.
+- **Freunde:** 👥 Freunde → Benutzernamen eingeben → Anfrage. Angenommene Freunde sieht man mit Online-Status
+  (online / in der Lobby / spielt gerade) und kann sie mit **Einladen** direkt in einen privaten Raum holen.
+  Im privaten Raum spielen Freunde standardmäßig **im selben Team** (umschaltbar auf „Gegeneinander“).
 
 Wird bei jedem Push auf `main` von GitHub Actions (`.github/workflows/cloudflare.yml`) veröffentlicht:
 Worker (Spielseite + API), Durable Object (Multiplayer-Server für alle Räume) und D1-Datenbank (`kistenkrawall-db`).
