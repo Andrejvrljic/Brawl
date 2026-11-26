@@ -9,6 +9,18 @@ export class Friends {
     this.ws = null;
     this.stopped = true;
     this.retry = 1000;
+    this.req = 0;
+    this.pending = new Map();
+  }
+
+  // Admin-Anfrage mit Antwort
+  request(m) {
+    return new Promise((resolve) => {
+      const id = ++this.req;
+      if (!this.send({ ...m, t: 'admin', req: id })) { resolve({ error: 'Keine Verbindung zum Server – kurz warten.' }); return; }
+      const t = setTimeout(() => { this.pending.delete(id); resolve({ error: 'Server antwortet nicht.' }); }, 8000);
+      this.pending.set(id, (r) => { clearTimeout(t); resolve(r); });
+    });
   }
 
   start(token) {
@@ -57,6 +69,10 @@ export class Friends {
         this.h.onInvite(m); this.h.onChange();
         break;
       case 'authfail': this.stop(); break;
+      case 'adminRes': { const f = this.pending.get(m.req); if (f) { this.pending.delete(m.req); f(m); } break; }
+      case 'announce': this.h.onAnnounce(m); break;
+      case 'profileUpdate': this.h.onProfileUpdate(); break;
+      case 'kicked': this.h.onKicked(m); break;
     }
   }
 

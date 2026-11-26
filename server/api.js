@@ -2,6 +2,7 @@
 // Läuft gleich unter Node (SQLite) und Cloudflare (D1): alle Datenbank-Aufrufe werden mit await benutzt.
 import { MODES } from '../public/shared/game.js';
 import { runAction, applyMatch, totalTrophies } from '../public/shared/progress.js';
+import { isAdminName } from './admin.js';
 
 const OFFLINE_MIN_GAP = 25 * 1000; // Mindestabstand zwischen gemeldeten Bot-Matches
 const hits = new Map();
@@ -16,7 +17,7 @@ export function limited(key, max, windowMs) {
 }
 
 export async function publicProfile(db, acc) {
-  return { profile: acc.profile, account: { registered: acc.registered, login: acc.login, rank: await db.rankOf(totalTrophies(acc.profile)) } };
+  return { profile: acc.profile, account: { registered: acc.registered, login: acc.login, admin: isAdminName(acc.login), rank: await db.rankOf(totalTrophies(acc.profile)) } };
 }
 
 // Gibt { status, data } zurück
@@ -39,6 +40,7 @@ export async function handleApi(db, { method, path, body = {}, token = '', ip = 
       if (limited('login:' + ip, 10, 5 * 60000)) return out(429, { error: 'Zu viele Versuche – in ein paar Minuten nochmal.' });
       const r = await db.login(body.login, body.password);
       if (!r) return out(401, { error: 'Benutzername oder Passwort falsch.' });
+      if (r.banned) return out(403, { error: 'Dieses Konto ist gesperrt.' });
       return out(200, { token: r.token, ...(await publicProfile(db, await db.account(r.id))) });
     }
     case 'GET /api/me': {

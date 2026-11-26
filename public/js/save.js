@@ -121,6 +121,8 @@ export async function logout() {
   Object.assign(account, { registered: false, login: null, rank: null });
   setProfile(null);
 }
+// Profil neu laden (z. B. nachdem ein Admin etwas geändert hat)
+export async function refresh() { try { applyServer(await call('GET', '/api/me')); return true; } catch { return false; } }
 export async function leaderboard() { return (await call('GET', '/api/leaderboard')).top; }
 export const token = () => (account.mode === 'server' ? ls.get(TOKEN_KEY) : null);
 export const isLoggedIn = () => account.mode === 'server' && account.registered && !!ls.get(TOKEN_KEY);

@@ -7,7 +7,7 @@ import { LocalSession, NetSession, serverUrl } from './session.js';
 import { sfx, setSound, unlockAudio } from './audio.js';
 import { BRAWLERS, BRAWLER_ORDER, MAX_LEVEL, SKIN_NAMES, SKIN_COST, levelMult } from '../shared/brawlers.js';
 import { MODES } from '../shared/game.js';
-import { save, account, initSave, act, reportMatch, signup, login, logout, leaderboard, token, isLoggedIn, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
+import { save, account, initSave, act, reportMatch, signup, login, logout, leaderboard, token, isLoggedIn, refresh, totalTrophies, isUnlocked, ROAD, roadAvailable, UPGRADE_COST } from './save.js';
 import { Friends } from './friends.js';
 
 const $ = (id) => document.getElementById(id);
@@ -49,7 +49,7 @@ const portrait = (k, s = save.skinSel[k] || 0) => portraits[k + s];
 
 // ---------- Allgemeines UI ----------
 function show(id) {
-  for (const s of ['auth', 'home', 'brawlers', 'road', 'boxes', 'ranking', 'friends', 'lobby', 'results']) $(s).classList.toggle('hidden', s !== id);
+  for (const s of ['auth', 'home', 'brawlers', 'road', 'boxes', 'ranking', 'friends', 'admin', 'lobby', 'results']) $(s).classList.toggle('hidden', s !== id);
   $('hud').classList.toggle('hidden', id !== 'game');
   state.screen = id;
   if (id === 'home') refreshHome();
@@ -58,7 +58,8 @@ function show(id) {
   if (id === 'boxes') renderBoxes();
   if (id === 'ranking') renderRanking();
   if (id === 'friends') { renderFriends(); friends.send({ t: 'friends' }); }
-  if (['auth', 'home', 'brawlers', 'road', 'boxes', 'ranking', 'friends'].includes(id) && renderer.mode !== 'menu') renderer.showMenu(save.selected, save.skinSel[save.selected]);
+  if (id === 'admin') openAdmin();
+  if (['auth', 'home', 'brawlers', 'road', 'boxes', 'ranking', 'friends', 'admin'].includes(id) && renderer.mode !== 'menu') renderer.showMenu(save.selected, save.skinSel[save.selected]);
 }
 
 let toastT = 0;
@@ -82,6 +83,7 @@ function refreshHome() {
   $('playerName').textContent = save.name;
   $('accIco').textContent = isLoggedIn() ? '👤' : '💾';
   $('badgeFriends').textContent = friends.badge || '';
+  $('navAdmin').classList.toggle('hidden', !(isLoggedIn() && account.admin));
   $('resTroph').textContent = totalTrophies();
   $('resCoins').textContent = save.coins;
   $('resGems').textContent = save.gems;
@@ -197,6 +199,28 @@ const friends = new Friends({
     if (state.screen !== 'friends' && (m.error || m.ok)) toast(escapeHtml(m.error || m.ok));
   },
   onRequest: (from) => { sfx('reward'); if (state.screen !== 'game') toast(`👥 <b>${escapeHtml(from.name)}</b> möchte dein Freund sein!`, 3500); },
+  onAnnounce: (m) => {
+    sfx('reward');
+    const el = document.createElement('div');
+    el.className = 'announce';
+    el.innerHTML = `📢 ${escapeHtml(m.text)}<small>Nachricht von ${escapeHtml(m.from || 'Admin')}</small>`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 7000);
+  },
+  onProfileUpdate: async () => {
+    if (await refresh()) {
+      if (['home', 'brawlers', 'road', 'boxes'].includes(state.screen)) show(state.screen);
+      toast('🎁 Ein Admin hat dein Konto aktualisiert!');
+    }
+  },
+  onKicked: async (m) => {
+    if (state.session) { const s = state.session; state.session = null; s.leave(); input.enabled = false; renderer.endGame(); }
+    await logout();
+    friends.stop();
+    closeModal();
+    showAuth('auth');
+    toast(escapeHtml(m.msg || 'Du wurdest abgemeldet.'), 5000);
+  },
   onInvite: (inv) => {
     sfx('reward');
     if (state.screen === 'game' || state.screen === 'lobby') { toast(`⚔️ <b>${escapeHtml(inv.from.name)}</b> lädt dich ein – nach dem Match unter 👥 Freunde beitreten.`, 4000); return; }
@@ -264,6 +288,92 @@ function inviteFriend(id) {
   }
   state.pendingInvite = id;
   startOnline({ create: true });
+}
+
+// ---------- Admin ----------
+let adminCode = '';
+try { adminCode = sessionStorage.getItem('kk_admin') || ''; } catch { /* egal */ }
+const adminMsg = (m) => { const el = $('adminMsg'); el.textContent = m.error || (typeof m.ok === 'string' ? m.ok : ''); el.style.color = m.error ? '#ff8a8e' : ''; };
+
+async function adminCall(m) {
+  const r = await friends.request({ ...m, code: adminCode });
+  if (r.badCode) { adminCode = ''; try { sessionStorage.removeItem('kk_admin'); } catch { /* egal */ } lockAdmin(); }
+  adminMsg(r);
+  return r;
+}
+function lockAdmin() { $('adminLock').classList.remove('hidden'); $('adminPanel').classList.add('hidden'); }
+
+async function openAdmin() {
+  $('adminMsg').textContent = '';
+  if (!(isLoggedIn() && account.admin)) { show('home'); return; }
+  if (!adminCode) { lockAdmin(); $('adminCodeIn').focus(); return; }
+  const r = await adminCall({ action: 'check' });
+  if (r.error) return;
+  $('adminLock').classList.add('hidden');
+  $('adminPanel').classList.remove('hidden');
+  const st = r.stats;
+  $('adminStats').innerHTML = `<div>Konten<b>${st.accounts}</b></div><div>Online<b>${st.online}</b></div><div>Spielen gerade<b>${st.playing}</b></div><div>Räume<b>${st.rooms}</b></div>`;
+}
+
+$('adminLock').addEventListener('submit', (e) => {
+  e.preventDefault();
+  adminCode = $('adminCodeIn').value;
+  $('adminCodeIn').value = '';
+  try { sessionStorage.setItem('kk_admin', adminCode); } catch { /* egal */ }
+  openAdmin();
+});
+$('annForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('annIn').value.trim();
+  if (!text) return;
+  const r = await adminCall({ action: 'announce', text });
+  if (!r.error) $('annIn').value = '';
+});
+$('findForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const r = await adminCall({ action: 'find', login: $('findIn').value.trim() });
+  renderAdminPlayer(r.player || null);
+});
+
+function renderAdminPlayer(p) {
+  const el = $('adminPlayer');
+  if (!p) { el.innerHTML = ''; return; }
+  const total = Object.values(p.trophies).reduce((a, b) => a + b, 0);
+  el.innerHTML = `<div class="pcard">
+    <h3>${escapeHtml(p.name)} ${p.admin ? '🛡️' : ''}</h3>
+    <div class="meta">@${escapeHtml(p.login)} · 🏆 ${total} · ● ${p.coins} · ◆ ${p.gems} · 🎁 ${p.boxes} · ${p.unlocked.length}/8 Brawler · ${p.games} Spiele, ${p.wins} Siege
+      ${p.banned ? '<br><span class="banned">⛔ Gesperrt</span>' : ''}</div>
+    <div class="abtns">
+      <button class="btn" data-give='{"coins":100}'>+100 ●</button>
+      <button class="btn" data-give='{"coins":1000}'>+1000 ●</button>
+      <button class="btn" data-give='{"gems":50}'>+50 ◆</button>
+      <button class="btn" data-give='{"gems":500}'>+500 ◆</button>
+      <button class="btn" data-give='{"boxes":1}'>+1 🎁</button>
+      <button class="btn" data-give='{"boxes":10}'>+10 🎁</button>
+    </div>
+    <div class="abtns">
+      <button class="btn gold" data-act="unlockAll">Alle Brawler freischalten</button>
+      <button class="btn gold" data-act="maxAll">Alle auf Max-Stufe</button>
+    </div>
+    <div class="troprow">Trophäen für
+      <select id="trBrawler">${BRAWLER_ORDER.map((k) => `<option value="${k}">${BRAWLERS[k].name} (${p.trophies[k]})</option>`).join('')}</select>
+      <input id="trValue" type="number" min="0" max="100000" placeholder="Anzahl">
+      <button class="btn" id="trSet">Setzen</button>
+    </div>
+    <div class="abtns" style="margin-top:12px">
+      ${p.admin ? '' : (p.banned ? '<button class="btn" data-ban="0">Sperre aufheben</button>' : '<button class="btn red" data-ban="1">⛔ Sperren</button>')}
+    </div>
+  </div>`;
+  const run = async (m) => { const r = await adminCall({ ...m, login: p.login }); if (r.player) renderAdminPlayer(r.player); };
+  el.querySelectorAll('[data-give]').forEach((b) => b.onclick = () => run({ action: 'give', ...JSON.parse(b.dataset.give) }));
+  el.querySelectorAll('[data-act]').forEach((b) => b.onclick = () => run({ action: b.dataset.act }));
+  $('trSet').onclick = () => run({ action: 'trophies', brawler: $('trBrawler').value, value: +$('trValue').value || 0 });
+  el.querySelectorAll('[data-ban]').forEach((b) => b.onclick = () => {
+    if (b.dataset.ban === '0') { run({ action: 'ban', on: false }); return; }
+    modal(`<h2>${escapeHtml(p.name)} sperren?</h2><p class="hint" style="max-width:none">Der Spieler wird sofort rausgeworfen und kann sich nicht mehr anmelden, bis du die Sperre aufhebst.</p><div class="row"><button class="btn grey" id="banNo">Abbrechen</button><button class="btn red" id="banYes">Sperren</button></div>`);
+    $('banNo').onclick = closeModal;
+    $('banYes').onclick = () => { closeModal(); run({ action: 'ban', on: true }); };
+  });
 }
 
 // ---------- Rangliste ----------

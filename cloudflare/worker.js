@@ -3,11 +3,15 @@
 import { handleApi } from '../server/api.js';
 import { Arena } from '../server/rooms.js';
 import { D1Store } from './d1.js';
+import { configureAdmin } from '../server/admin.js';
+
+const adminFromEnv = (env) => configureAdmin({ names: env.ADMIN_NAMES || 'Dinnerboneagg', code: env.ADMIN_CODE || '' });
 
 const json = (status, data) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
 export class ArenaDO {
   constructor(state, env) {
+    adminFromEnv(env);
     this.arena = new Arena(new D1Store(env.DB));
   }
 
@@ -25,6 +29,7 @@ export class ArenaDO {
 
 export default {
   async fetch(request, env) {
+    adminFromEnv(env);
     const url = new URL(request.url);
     // Echtzeit-Verbindungen gehen an den gemeinsamen Spielraum
     if (request.headers.get('Upgrade') === 'websocket') {

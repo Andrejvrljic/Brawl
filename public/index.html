@@ -58,6 +58,7 @@
       <button class="navbtn" data-go="boxes"><span class="big">🎁</span>Kisten<span class="badge" id="badgeBox"></span></button>
       <button class="navbtn" data-go="friends"><span class="big">👥</span>Freunde<span class="badge" id="badgeFriends"></span></button>
       <button class="navbtn" data-go="ranking"><span class="big">📊</span>Rangliste</button>
+      <button class="navbtn hidden" id="navAdmin" data-go="admin"><span class="big">🛡️</span>Admin</button>
     </nav>
     <div class="homeinfo">
       <div class="selname" id="selName">Funke</div>
@@ -116,6 +117,28 @@
       </form>
       <div class="formmsg" id="friendMsg"></div>
       <div id="friendLists"></div>
+    </div>
+  </section>
+
+  <!-- ========== ADMIN ========== -->
+  <section id="admin" class="screen panelscreen hidden">
+    <header class="panelhead"><button class="back" data-go="home">◀</button><h2>🛡️ Admin</h2></header>
+    <div class="adminwrap">
+      <form id="adminLock" class="addfriend">
+        <input id="adminCodeIn" type="password" placeholder="Admin-Code" autocomplete="off">
+        <button class="btn gold" type="submit">Entsperren</button>
+      </form>
+      <div id="adminPanel" class="hidden">
+        <div class="adminstats" id="adminStats"></div>
+        <div class="fsec"><h3>📢 Nachricht an alle Spieler</h3>
+          <form id="annForm" class="addfriend"><input id="annIn" maxlength="200" placeholder="z. B. Turnier um 18 Uhr!"><button class="btn" type="submit">Senden</button></form>
+        </div>
+        <div class="fsec"><h3>🔎 Spieler verwalten</h3>
+          <form id="findForm" class="addfriend"><input id="findIn" maxlength="20" placeholder="Benutzername" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="btn" type="submit">Suchen</button></form>
+        </div>
+        <div id="adminPlayer"></div>
+      </div>
+      <div class="formmsg" id="adminMsg"></div>
     </div>
   </section>
 

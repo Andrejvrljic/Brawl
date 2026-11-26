@@ -8,7 +8,12 @@ import { startServer } from '../server/app.js';
 let app, base, wsBase;
 before(async () => {
   if (process.env.TEST_URL) base = process.env.TEST_URL.replace(/\/$/, '');
-  else { app = await startServer({ port: 0, dbPath: ':memory:', quiet: true }); base = `http://127.0.0.1:${app.port}`; }
+  else {
+    process.env.ADMIN_NAMES = 'Dinnerboneagg';
+    process.env.ADMIN_CODE = 'TestCode123';
+    app = await startServer({ port: 0, dbPath: ':memory:', quiet: true });
+    base = `http://127.0.0.1:${app.port}`;
+  }
   wsBase = base.replace(/^http/, 'ws');
 });
 after(async () => { if (app) await app.close(); });
@@ -150,4 +155,44 @@ test('Freunde: Anfrage, Annehmen, Online-Status, Einladung, gemeinsamer Raum im 
   b.send({ t: 'friendRemove', id: aId });
   await a.wait((m) => m.t === 'friends' && m.list.length === 0);
   for (const s of [a, b, ga, gb]) s.close();
+});
+
+// Nur lokal: der echte Admin-Code ist geheim
+test('Admin: nur mit Admin-Konto und Code; geben, sperren, Nachricht an alle', { skip: !!process.env.TEST_URL }, async () => {
+  const adm = await api('POST', '/api/signup', { login: 'Dinnerboneagg', password: 'geheim123' });
+  assert.equal(adm.status, 200);
+  assert.equal(adm.data.account.admin, true);
+  const P = await signup();
+  const a = await socket(), p = await socket();
+  a.send({ t: 'auth', token: adm.data.token });
+  p.send({ t: 'auth', token: P.token });
+  await a.wait((m) => m.t === 'friends');
+  await p.wait((m) => m.t === 'friends');
+  let req = 0;
+  const admin = async (sock, m) => { const id = ++req; sock.send({ t: 'admin', req: id, ...m }); return sock.wait((x) => x.t === 'adminRes' && x.req === id); };
+
+  assert.match((await admin(p, { code: 'TestCode123', action: 'check' })).error, /Kein Admin/);
+  assert.match((await admin(a, { code: 'falsch', action: 'check' })).error, /Falscher/);
+  const chk = await admin(a, { code: 'TestCode123', action: 'check' });
+  assert.ok(chk.stats.accounts >= 2);
+
+  const give = await admin(a, { code: 'TestCode123', action: 'give', login: P.login, coins: 500, gems: 30, boxes: 2 });
+  assert.equal(give.player.coins, 550);
+  await p.wait((m) => m.t === 'profileUpdate');
+  const un = await admin(a, { code: 'TestCode123', action: 'unlockAll', login: P.login });
+  assert.equal(un.player.unlocked.length, 8);
+  const tr = await admin(a, { code: 'TestCode123', action: 'trophies', login: P.login, brawler: 'pfeil', value: 120 });
+  assert.equal(tr.player.trophies.pfeil, 120);
+
+  await admin(a, { code: 'TestCode123', action: 'announce', text: 'Hallo zusammen!' });
+  assert.equal((await p.wait((m) => m.t === 'announce')).text, 'Hallo zusammen!');
+
+  assert.match((await admin(a, { code: 'TestCode123', action: 'ban', login: 'Dinnerboneagg', on: true })).error, /Admins/);
+  await admin(a, { code: 'TestCode123', action: 'ban', login: P.login, on: true });
+  await p.wait((m) => m.t === 'kicked');
+  assert.equal((await api('POST', '/api/login', { login: P.login, password: 'geheim123' })).status, 403);
+  assert.equal((await api('GET', '/api/me', null, P.token)).status, 401);
+  await admin(a, { code: 'TestCode123', action: 'ban', login: P.login, on: false });
+  assert.equal((await api('POST', '/api/login', { login: P.login, password: 'geheim123' })).status, 200);
+  a.close(); p.close();
 });

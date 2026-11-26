@@ -51,6 +51,10 @@ export class Database {
         PRIMARY KEY (a, b)
       );
       CREATE INDEX IF NOT EXISTS idx_friends_b ON friends(b);
+      CREATE TABLE IF NOT EXISTS bans (
+        account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        created    INTEGER NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_accounts_trophies ON accounts(trophies DESC);
       CREATE INDEX IF NOT EXISTS idx_matches_account ON matches(account_id, played DESC);
     `);
@@ -67,6 +71,9 @@ export class Database {
       touchSess: q('UPDATE sessions SET last_used = ? WHERE token_hash = ?'),
       delSess: q('DELETE FROM sessions WHERE token_hash = ?'),
       top: q('SELECT id, name, trophies, login IS NOT NULL AS registered FROM accounts WHERE trophies > 0 AND login IS NOT NULL ORDER BY trophies DESC, updated ASC LIMIT ?'),
+      banGet: q('SELECT 1 AS b FROM bans WHERE account_id = ?'),
+      banIns: q('INSERT OR IGNORE INTO bans (account_id, created) VALUES (?, ?)'),
+      banDel: q('DELETE FROM bans WHERE account_id = ?'),
       insertReg: q('INSERT INTO accounts (login, pass, name, profile, trophies, created, updated) VALUES (?, ?, ?, ?, 0, ?, ?)'),
       friendGet: q('SELECT * FROM friends WHERE a = ? AND b = ?'),
       friendIns: q('INSERT INTO friends (a, b, requester, status, created) VALUES (?, ?, ?, ?, ?)'),
@@ -104,9 +111,19 @@ export class Database {
     const h = sha(token);
     const s = this.q.getSess.get(h);
     if (!s) return null;
+    if (this.isBanned(s.account_id)) return null;
     this.q.touchSess.run(Date.now(), h);
     return this.account(s.account_id);
   }
+
+  // ---------- Admin ----------
+  byLogin(login) {
+    const row = typeof login === 'string' ? this.q.getByLogin.get(login.trim()) : null;
+    if (!row) return null;
+    return { ...this.account(row.id), created: row.created, banned: this.isBanned(row.id) };
+  }
+  isBanned(id) { return !!this.q.banGet.get(id); }
+  setBan(id, on) { if (on) this.q.banIns.run(id, Date.now()); else this.q.banDel.run(id); }
 
   account(id) {
     const row = this.q.getAcc.get(id);
@@ -182,6 +199,7 @@ export class Database {
     if (typeof login !== 'string' || typeof password !== 'string') return null;
     const row = this.q.getByLogin.get(login.trim());
     if (!row || !verifyPassword(password, row.pass)) return null;
+    if (this.isBanned(row.id)) return { banned: true };
     return { id: row.id, token: this.newSession(row.id) };
   }
 
